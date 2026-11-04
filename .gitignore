@@ -1,0 +1,27 @@
+# Datos (las imágenes viven en S3, no en git)
+data/*
+!data/.gitkeep
+*.zip
+
+# Modelos entrenados (viven en S3)
+*.pth
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Secretos
+.env
+kaggle.json
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store

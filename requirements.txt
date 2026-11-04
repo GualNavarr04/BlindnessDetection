@@ -1,0 +1,16 @@
+numpy
+pandas
+pillow
+opencv-python-headless
+matplotlib
+seaborn
+scikit-learn
+torch
+torchvision
+timm
+boto3
+kaggle
+python-dotenv
+fastapi
+uvicorn[standard]
+python-multipart
