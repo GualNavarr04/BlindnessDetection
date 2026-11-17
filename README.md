@@ -85,9 +85,11 @@ más que un falso positivo.
 
 ## 4. Servicios de AWS
 
-- **Amazon S3:** almacenamiento del proyecto. Guarda los modelos entrenados y el registro de cada
-  predicción que hace la API, sin datos que identifiquen al paciente. El dataset no se guarda en
-  S3: se descarga directo de Kaggle cuando se entrena.
+- **Amazon S3:** almacenamiento del proyecto, en dos buckets. Uno de modelos: guarda cada
+  entrenamiento en `models/<run_id>/` y el modelo que está en producción en `models/current/`
+  (la API siempre carga de ahí). Otro de predicciones: el registro de cada predicción que hace la
+  API, sin datos que identifiquen al paciente. El dataset no se guarda en S3: se descarga directo
+  de Kaggle cuando se entrena.
 - **Amazon SageMaker AI:** lo usamos para entrenar los modelos. Lanzamos trabajos de entrenamiento
   en instancias con GPU que descargan el dataset directo de Kaggle y, al terminar, guardan el
   modelo entrenado en S3. La instancia se apaga sola al finalizar, así que solo se paga el tiempo
@@ -105,8 +107,10 @@ más que un falso positivo.
 ![Diagrama de arquitectura](docs/arquitectura.png)
 
 1. **SageMaker AI** descarga el dataset APTOS 2019 directo de Kaggle y entrena el modelo con GPU.
-2. El modelo entrenado se guarda en **Amazon S3**.
-3. **EC2** carga el modelo desde S3 y sirve la página web y la API de inferencia con FastAPI.
+2. El modelo entrenado se guarda en **Amazon S3**, en `models/<run_id>/`. Tras revisar sus
+   métricas, se promueve a `models/current/` (el que usa producción).
+3. **EC2** carga el modelo desde `models/current/` en S3 y sirve la página web y la API de
+   inferencia con FastAPI.
 4. El médico de primer contacto sube una foto de fondo de ojo; la API revisa su calidad, clasifica
    y regresa el **semáforo** y el **mapa de calor** (Grad-CAM), o un aviso de baja confianza.
 5. Cada predicción se registra en **S3** sin datos del paciente.
@@ -126,7 +130,7 @@ Todos los servicios están en la región `us-east-1`. Más detalle en
 ├── docs/                 # diagrama de arquitectura
 ├── src/
 │   ├── data/             # scripts para descargar y preparar el dataset
-│   ├── training/         # train.py que ejecuta SageMaker AI
+│   ├── training/         # train.py (SageMaker AI) y promote_model.py (publica a producción)
 │   └── api/              # página web y API con FastAPI (corre en EC2)
 ├── tests/                # pruebas con pytest
 └── .github/workflows/    # CI con GitHub Actions
