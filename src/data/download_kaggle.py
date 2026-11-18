@@ -101,7 +101,15 @@ def _http_get(file_name: str, token: str) -> bytes:
                 ) from e
             if e.code == 404:
                 raise KaggleError(f"No existe {file_name} en la competencia (404).") from e
-            if attempt == RETRIES or e.code not in (429, 500, 502, 503, 504):
+            if e.code == 429:
+                # Límite de descargas de la cuenta: Kaggle dice cuánto esperar y suelen ser horas o
+                # días, así que no tiene caso reintentar.
+                wait_h = int(e.headers.get("Retry-After", "0") or 0) / 3600
+                raise KaggleError(
+                    f"Kaggle limitó las descargas de esta cuenta (429). Hay que esperar ~{wait_h:.0f} h "
+                    "o usar el token de otra cuenta."
+                ) from e
+            if attempt == RETRIES or e.code not in (500, 502, 503, 504):
                 raise KaggleError(f"Error HTTP {e.code} al bajar {file_name}.") from e
         except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
             if attempt == RETRIES:
@@ -171,12 +179,16 @@ def download_aptos(
         _write_atomic(images_dir / f"{image_id}.png", content)
 
     start = time.time()
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
         futures = [pool.submit(fetch, i) for i in pending]
         for done, future in enumerate(as_completed(futures), start=1):
             future.result()  # si una imagen falla después de los reintentos, se detiene todo
-            if done % 200 == 0 or done == len(pending):
+            if done % 50 == 0 or done == len(pending):
                 print(f"[download] {done}/{len(pending)} ({time.time() - start:.0f} s)", flush=True)
+    finally:
+        # Ante un error (o Ctrl+C) no esperar a que terminen las descargas que faltan
+        pool.shutdown(wait=False, cancel_futures=True)
 
     return str(dest)
 
