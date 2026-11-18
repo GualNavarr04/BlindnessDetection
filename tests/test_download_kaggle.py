@@ -66,6 +66,13 @@ def test_token_order(tmp_path, monkeypatch):
     monkeypatch.delenv("KAGGLE_TOKEN_PARAM", raising=False)
     monkeypatch.setenv("KAGGLE_CONFIG_DIR", str(tmp_path))
 
+    # Sin variable ni archivo, va a Parameter Store; aquí se simula que falla
+    import boto3
+
+    def no_aws(*args, **kwargs):
+        raise RuntimeError("sin credenciales")
+
+    monkeypatch.setattr(boto3, "client", no_aws)
     with pytest.raises(dk.KaggleError):
         dk.get_kaggle_token()
 

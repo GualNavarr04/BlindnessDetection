@@ -11,7 +11,8 @@ Bajar imagen por imagen (en vez del zip de 10 GB con todo) permite:
 El token se busca en este orden:
 1. Variable de entorno KAGGLE_API_TOKEN.
 2. Archivo access_token en KAGGLE_CONFIG_DIR (por defecto ~/.kaggle/).
-3. Parameter Store, en el parámetro KAGGLE_TOKEN_PARAM (así funciona en Studio y en SageMaker).
+3. Parameter Store, en el parámetro KAGGLE_TOKEN_PARAM (por defecto /blindness-detection/kaggle-token).
+   Así funciona en Studio y en SageMaker sin configurar nada.
 
 Uso desde la terminal:
     python -m src.data.download_kaggle                    # todo, a DATA_DIR
@@ -36,6 +37,7 @@ from typing import Iterable
 
 COMPETITION = "aptos2019-blindness-detection"
 API_URL = f"https://www.kaggle.com/api/v1/competitions/data/download/{COMPETITION}/"
+DEFAULT_TOKEN_PARAM = "/blindness-detection/kaggle-token"
 RETRIES = 4
 TIMEOUT_S = 120
 
@@ -60,17 +62,17 @@ def get_kaggle_token() -> str:
         if token:
             return token
 
-    param = os.environ.get("KAGGLE_TOKEN_PARAM", "").strip()
-    if param:
+    param = os.environ.get("KAGGLE_TOKEN_PARAM", "").strip() or DEFAULT_TOKEN_PARAM
+    try:
         import boto3  # solo hace falta si el token viene de Parameter Store
 
         ssm = boto3.client("ssm", region_name=os.environ.get("AWS_REGION", "us-east-1"))
         return ssm.get_parameter(Name=param, WithDecryption=True)["Parameter"]["Value"].strip()
-
-    raise KaggleError(
-        "No encontré el token de Kaggle. Define KAGGLE_API_TOKEN, pon el archivo "
-        f"{token_file} o define KAGGLE_TOKEN_PARAM (Parameter Store)."
-    )
+    except Exception as e:  # sin credenciales de AWS, sin permiso o sin boto3
+        raise KaggleError(
+            "No encontré el token de Kaggle. Define KAGGLE_API_TOKEN, pon el archivo "
+            f"{token_file} o da acceso al parámetro {param} de Parameter Store ({e})."
+        ) from e
 
 
 # ---------------------------------------------------------------------------- HTTP
