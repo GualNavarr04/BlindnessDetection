@@ -18,8 +18,12 @@ IMAGE_SIZE = 384
 MEAN = (0.485, 0.456, 0.406)  # ImageNet
 STD = (0.229, 0.224, 0.225)
 
-# Un pixel con gris <= este valor se considera fondo negro alrededor de la retina.
-BACKGROUND_THRESHOLD = 7
+# Un pixel con gris <= este valor (después de suavizar) se considera fondo negro.
+BACKGROUND_THRESHOLD = 15
+# Fracción mínima de pixeles de retina para que una fila o columna cuente como retina.
+MIN_RETINA_FRACTION = 0.02
+# Lado mayor de la copia reducida sobre la que se calcula la máscara de la retina.
+MASK_SIZE = 512
 
 
 def load_image(source: str | Path | bytes) -> np.ndarray:
@@ -46,13 +50,27 @@ def crop_retina(img: np.ndarray, threshold: int = BACKGROUND_THRESHOLD) -> np.nd
     retina cortada arriba y abajo. Primero se recorta al rectángulo que contiene la retina y
     luego se rellena con negro hasta hacerla cuadrada (centrada), para que al cambiar el tamaño
     la retina no se deforme. Si la foto es casi toda negra, se regresa sin recortar.
+
+    La orilla de la retina es oscura y difusa, y el ruido de JPEG en el fondo puede pasar el
+    umbral. Para que el recorte sea estable, la máscara se calcula sobre una copia reducida y
+    suavizada, y una fila o columna solo cuenta como retina si al menos MIN_RETINA_FRACTION de
+    sus pixeles pasan el umbral.
     """
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    rows = np.where((gray > threshold).any(axis=1))[0]
-    cols = np.where((gray > threshold).any(axis=0))[0]
+    scale = MASK_SIZE / max(img.shape[:2])
+    small = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else img
+    gray = cv2.GaussianBlur(cv2.cvtColor(small, cv2.COLOR_RGB2GRAY), (5, 5), 0)
+    mask = gray > threshold
+    rows = np.where(mask.mean(axis=1) > MIN_RETINA_FRACTION)[0]
+    cols = np.where(mask.mean(axis=0) > MIN_RETINA_FRACTION)[0]
     if rows.size == 0 or cols.size == 0:
         return img
-    cropped = img[rows[0] : rows[-1] + 1, cols[0] : cols[-1] + 1]
+
+    # De la máscara reducida a coordenadas de la imagen original
+    fy = img.shape[0] / small.shape[0]
+    fx = img.shape[1] / small.shape[1]
+    top_r, bottom_r = int(rows[0] * fy), min(img.shape[0], int(np.ceil((rows[-1] + 1) * fy)))
+    left_c, right_c = int(cols[0] * fx), min(img.shape[1], int(np.ceil((cols[-1] + 1) * fx)))
+    cropped = img[top_r:bottom_r, left_c:right_c]
 
     h, w = cropped.shape[:2]
     side = max(h, w)

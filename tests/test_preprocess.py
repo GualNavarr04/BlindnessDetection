@@ -65,6 +65,18 @@ def test_crop_retina_pads_cut_retina_to_square():
     assert cropped.shape[1] >= 299
 
 
+def test_crop_retina_stable_with_jpeg_and_dim_edge():
+    # retina con orilla oscura (viñeteo) y guardada como JPEG: el recorte no debe cambiar de escala
+    img = np.zeros((600, 800, 3), dtype=np.uint8)
+    yy, xx = np.mgrid[:600, :800]
+    r = np.hypot(yy - 300, xx - 400)
+    inside = r <= 250
+    img[inside] = (np.clip(180 - 150 * (r[inside] / 250) ** 4, 0, 255)[:, None] * [1, 0.45, 0.2]).astype(np.uint8)
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    jpeg = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    assert abs(crop_retina(img).shape[0] - crop_retina(jpeg).shape[0]) <= 6
+
+
 def test_crop_retina_all_black_returns_same():
     img = np.zeros((100, 120, 3), dtype=np.uint8)
     assert crop_retina(img) is img

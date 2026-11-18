@@ -8,6 +8,7 @@ scikit-learn
 torch
 torchvision
 timm
+imagehash
 boto3
 kaggle
 python-dotenv
