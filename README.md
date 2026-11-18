@@ -116,8 +116,12 @@ más que un falso positivo.
 5. Cada predicción se registra en **S3** sin datos del paciente.
 6. **CloudWatch** recibe logs y métricas, con una alarma ante cambios en la distribución de predicciones.
 
-Todos los servicios están en la región `us-east-1`. Más detalle en
-[docs/arquitectura.md](docs/arquitectura.md).
+Todos los servicios están en la región `us-east-1`. Los modelos se guardan en
+`s3://blindness-detection-modelos-<account-id>/models/` y el registro de predicciones en
+`s3://blindness-detection-predicciones-<account-id>/logs/predictions/`. Cada servicio tiene su
+propio rol IAM con permisos mínimos: `BlindnessDetection-SageMakerRole` (escribe modelos) y
+`BlindnessDetection-EC2Role` (lee modelos y escribe predicciones). Más detalle de buckets, roles y
+convenciones en [docs/arquitectura.md](docs/arquitectura.md).
 
 ## 6. Estructura del repositorio
 

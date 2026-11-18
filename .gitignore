@@ -1,4 +1,4 @@
-# Datos (las imágenes viven en S3, no en git)
+# Datos (el dataset se descarga de Kaggle al entrenar, no va en git)
 data/*
 !data/.gitkeep
 *.zip
