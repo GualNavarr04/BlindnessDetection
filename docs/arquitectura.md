@@ -60,6 +60,7 @@ políticas son en línea y los dos roles tienen el tag `Project=BlindnessDetecti
 | Otro S3 | Leer y escribir el bucket default `sagemaker-us-east-1-<account-id>` (código del job) | — |
 | CloudWatch Logs | Grupos `/aws/sagemaker/*` | Grupos `/blindness-detection/*` |
 | Métricas de CloudWatch | Namespace `/aws/sagemaker/*` | Namespace `BlindnessDetection` |
+| Parameter Store | Leer solo `/blindness-detection/kaggle-token` (token de Kaggle) | Sin acceso |
 | Otros | Descargar imágenes de contenedor de ECR | — |
 | Política | `BlindnessDetection-SageMakerPolicy` | `BlindnessDetection-EC2Policy` |
 
@@ -71,6 +72,11 @@ Cómo se usan:
 - **API:** los logs van a un grupo que empiece con `/blindness-detection/` (p. ej.
   `/blindness-detection/api`) y las métricas al namespace `BlindnessDetection`; con otros nombres
   CloudWatch los rechaza.
+
+Para desarrollar usamos SageMaker Studio con un tercer rol, `BlindnessDetection-StudioRole`
+(`AmazonSageMakerFullAccess` + los buckets del proyecto, el token de Kaggle y permiso para lanzar
+entrenamientos con `BlindnessDetection-SageMakerRole`). Studio es solo el ambiente de trabajo; no
+forma parte de la arquitectura de producción. Detalles en [plan.md](plan.md).
 
 ## Versión en texto (Mermaid)
 

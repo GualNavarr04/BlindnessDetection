@@ -131,7 +131,7 @@ convenciones en [docs/arquitectura.md](docs/arquitectura.md).
 ├── .gitignore
 ├── data/                 # vacío: el dataset se descarga de Kaggle al entrenar
 ├── notebooks/            # análisis y visualización de datos (EDA)
-├── docs/                 # diagrama de arquitectura
+├── docs/                 # arquitectura y plan de trabajo (plan.md)
 ├── src/
 │   ├── data/             # scripts para descargar y preparar el dataset
 │   ├── training/         # train.py (SageMaker AI) y promote_model.py (publica a producción)
