@@ -63,8 +63,18 @@ disco de 30 GB. Los entrenamientos se pagan aparte (GPU Spot, solo mientras corr
    git config --global user.email "correo@iteso.mx"
    git clone https://github.com/GualNavarr04/BlindnessDetection.git
    ```
-   Para hacer push, GitHub pide un *personal access token* (Settings → Developer settings →
-   Fine-grained tokens, con permiso *Contents: Read and write* sobre este repo).
+   Para hacer push, GitHub pide un *personal access token* **classic** (los *fine-grained* no
+   sirven para el repo personal de otra persona, aunque seas colaborador):
+   - Antes, ser colaborador del repo (Settings → Collaborators) y aceptar la invitación.
+   - En GitHub: foto → **Settings → Developer settings → Personal access tokens → Tokens (classic)
+     → Generate new token (classic)**. Scope: solo **`repo`**; vencimiento después de la entrega.
+     Copiarlo (`ghp_...`), GitHub lo muestra una sola vez.
+   - En la terminal de Studio:
+     ```bash
+     git config --global credential.helper store
+     git push    # Username: tu usuario de GitHub · Password: el token ghp_...
+     ```
+     Queda guardado en `~/.git-credentials`, en el disco privado del espacio (fuera del repo).
 4. `cp .env.example .env` y llenar el número de cuenta.
 5. `pip install -r requirements.txt`.
 6. **Al terminar el día:** detener el espacio (*Stop space*) aunque exista el apagado automático.
@@ -79,14 +89,15 @@ disco de 30 GB. Los entrenamientos se pagan aparte (GPU Spot, solo mientras corr
 
 ## 3. Cabos sueltos
 
-| Pendiente | Quién | Notas |
+| Pendiente | Quién | Estado |
 |---|---|---|
-| Entrar a la consola con su usuario, cambiar contraseña y activar MFA | Eduardo | Con las credenciales que le mandó Kevin |
-| Borrar el archivo de credenciales de Eduardo después de enviarlo | Kevin | |
-| Regenerar el token de Kaggle y actualizar Parameter Store | Kevin | El token actual se compartió por chat. Después: `aws ssm put-parameter --name /blindness-detection/kaggle-token --type SecureString --overwrite --value file://<ruta>/access_token` |
-| Decidir retención de `/aws/sagemaker/TrainingJobs` | Kevin | Hoy guarda logs para siempre; tiene logs de una actividad anterior |
-| Crear un personal access token de GitHub para hacer push desde Studio | Ambos | Ver sección 2, paso 3 |
-| Revisar la regla del semáforo con un médico | Ambos | El README lo promete; ideal antes de la entrega final |
+| Mandar a Eduardo sus credenciales y borrar el archivo | Kevin | ✅ Hecho |
+| Token de Kaggle | Kevin | ✅ Se queda el actual en Parameter Store (decisión del equipo) |
+| Retención de `/aws/sagemaker/TrainingJobs` | Kevin | ✅ Se guardan siempre (decisión del equipo) |
+| Clonar el repo en Studio | Kevin | ✅ Hecho |
+| Entrar a la consola con su usuario, cambiar contraseña y activar MFA | Eduardo | Pendiente |
+| Crear un personal access token **classic** de GitHub para hacer push desde Studio | Ambos | Kevin ✅ · Eduardo pendiente. Ver sección 2, paso 3 |
+| Revisar la regla del semáforo con un médico | Ambos | Pendiente. El README lo promete; ideal antes de la entrega final |
 
 ## 4. Contratos (acordar juntos antes de empezar)
 
