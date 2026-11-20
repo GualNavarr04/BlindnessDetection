@@ -49,7 +49,7 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   en Studio con `--cache-only 1` (6-7 min por tamaño).
 - [x] Permiso de solo lectura de `data/aptos-cache/*` para `BlindnessDetection-SageMakerRole`
   (política `BlindnessDetection-SageMakerPolicy`, sentencia `LeerCacheDataset`).
-- [ ] Subir el caché desde Studio:
+- [x] Caché subido desde Studio (3,466 fotos en `384/` y 3,466 en `512/`, 1.4 GB):
   `aws s3 sync ~/data/aptos/cache/384 s3://<bucket>/data/aptos-cache/384/` (y lo mismo con `512`).
 
 ### AWS (región `us-east-1`)
