@@ -50,6 +50,13 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+try:  # en Studio, DATA_DIR y S3_BUCKET_MODELS vienen del .env; en SageMaker no hay .env ni hace falta
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
+
 from src.common.preprocess import IMAGE_SIZE, MEAN, STD, crop_retina, load_image, to_tensor  # noqa: E402
 from src.data.metrics import choose_thresholds, compute_metrics  # noqa: E402
 
