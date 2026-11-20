@@ -18,6 +18,8 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
 - [x] `src/data/metrics.py` (contrato 4.6): kappa cuadrático, sensibilidad/especificidad de referibles y elección de umbrales.
 - [x] `src/common/preprocess.py` (contrato 4.2), `src/data/download_kaggle.py` (contrato 4.1) y
   `src/data/make_splits.py`, con 21 pruebas en `tests/`.
+- [x] `src/common/quality_filter.py` (contrato 4.8), con 6 pruebas más (27 en total). Umbrales
+  calibrados en `notebooks/quality.ipynb`: brillo < 28 → "oscura", nitidez < 0.5 → "borrosa".
 
 ### Datos
 - [x] Dataset completo en Studio (`/home/sagemaker-user/data/aptos`, 3,662 imágenes). La descarga imagen
@@ -30,6 +32,10 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
 - [x] División en `data/splits.csv` con `notebooks/splits.ipynb`: se quitan 196 duplicados y quedan
   3,466 imágenes, train 2,426 / val 520 / test 520, estratificado (semilla 42). Las 8 verificaciones
   del notebook pasan y las cámaras quedan repartidas en las tres partes.
+- [x] `notebooks/quality.ipynb` ejecutado y con conclusiones: la nitidez se divide entre el brillo
+  (correlación con el brillo 0.01, antes 0.77). Con fotos de prueba degradadas se rechaza el 99% del
+  desenfoque fuerte y el 88% de las casi negras; del dataset solo 2 fotos, que se quedan en el
+  entrenamiento. Deja `quality_scores.csv` y `quality_degraded.csv` en `DATA_DIR`.
 - [ ] Decidir de dónde lee el dataset el entrenamiento en SageMaker: volver a bajarlo de Kaggle puede
   topar con el mismo límite. Propuesta: copiarlo una vez a S3.
 
@@ -250,12 +256,14 @@ estos argumentos y escriba un modelo de prueba.
 class QualityResult:
     ok: bool
     reason: str | None      # "borrosa", "oscura" o None
-    scores: dict            # {"blur": float, "brightness": float}
+    scores: dict            # {"brightness": float, "sharpness": float}
 
 def check_quality(img: np.ndarray) -> QualityResult:   # img RGB uint8 de load_image()
 ```
 
-Los umbrales viven en el mismo archivo como constantes y salen del EDA.
+Los umbrales viven en el mismo archivo como constantes (`BRIGHTNESS_THRESHOLD = 28.0`,
+`SHARPNESS_THRESHOLD = 0.5`) y salen de `notebooks/quality.ipynb`. Si la foto es oscura y borrosa a la
+vez, el motivo es "oscura".
 
 ### 4.9 Respuesta de la API — `POST /predict`
 
@@ -293,7 +301,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 | 2 | Datos | `src/common/preprocess.py` | Contrato 4.2. **Primero y subirlo pronto**: Eduardo lo usa en la API y en Grad-CAM |
 | 3 | Datos | `notebooks/eda.ipynb` | Distribución de clases, duplicados (`imagehash`), recorte de retina y ejemplos de fotos borrosas y oscuras |
 | 4 | Datos | `src/data/make_splits.py` | Quita duplicados (incluidos los de etiquetas distintas) y hace el split estratificado 70/15/15 con semilla fija. Sube `data/splits.csv` (`id_code,diagnosis,split`) al repo |
-| 5 | Servicio | `src/common/quality_filter.py` | Contrato 4.8. Los umbrales salen del EDA (#3) |
+| 5 | Servicio | `src/common/quality_filter.py` | Contrato 4.8. Los umbrales salen de `notebooks/quality.ipynb` ✅ |
 | 6 | Entrenamiento | `src/training/train.py` | Contrato 4.7. EfficientNet-B0 (`timm`), pesos por clase, checkpoints, `model.pth` + `metadata.json` a `models/<run_id>/` (contrato 4.3). Usa `metrics.py` de Eduardo. Probar en Studio con `--subset 64 --epochs 1` |
 | 7 | Entrenamiento | `src/training/requirements.txt` | Solo lo del contenedor: `timm`, `kaggle>=1.8`, `imagehash`, `boto3` |
 | 8 | Servicio | Página web (`src/api/static/`) | Subir la foto y mostrar semáforo, recomendación, probabilidades y mapa de calor. Se construye contra el contrato 4.9 con respuestas falsas |
