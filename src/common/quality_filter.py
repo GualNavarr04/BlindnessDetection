@@ -31,8 +31,8 @@ QUALITY_SIZE = 512
 EDGE_MARGIN = 8           # pixeles (a QUALITY_SIZE) que se quitan de la orilla de la retina
 MIN_RETINA_FRACTION = 0.05  # si la "retina" ocupa menos que esto, la foto es prácticamente negra
 
-# PROVISIONALES (probados con 150 fotos): se confirman con notebooks/quality.ipynb
-BRIGHTNESS_THRESHOLD = 25.0   # gris promedio de la retina; menor = oscura
+# Calibrados en notebooks/quality.ipynb con fotos de prueba degradadas a propósito
+BRIGHTNESS_THRESHOLD = 28.0   # gris promedio de la retina; menor = oscura (la más oscura del dataset: 28.8)
 SHARPNESS_THRESHOLD = 0.5     # nitidez normalizada; menor = borrosa
 
 
