@@ -135,7 +135,7 @@ convenciones en [docs/arquitectura.md](docs/arquitectura.md).
 ├── .gitignore
 ├── data/                 # splits.csv (división train/val/test) y duplicates.csv; las fotos no van en git
 ├── notebooks/            # EDA, división del dataset y calibración del filtro de calidad
-├── docs/                 # arquitectura, plan de trabajo (plan.md) y reporte final (Word)
+├── docs/                 # arquitectura y plan de trabajo (plan.md)
 ├── src/
 │   ├── data/             # scripts para descargar y preparar el dataset
 │   ├── common/           # preprocesamiento y filtro de calidad (los usan entrenamiento y API)

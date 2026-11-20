@@ -381,10 +381,6 @@ el puerto 8000 y abrirla en `…/jupyterlab/default/proxy/8000/`.
   o abre el pull request y que él lo revise.
 - `src/api/static/` (página web) es de Kevin; el resto de `src/api/` es de Eduardo.
 - Cambiar un contrato (sección 4) se avisa antes de hacer push.
-- El reporte final está en `docs/Reporte_Final_Proyecto.docx` y lo editamos los dos. Git no puede
-  juntar cambios de dos personas en un Word: si los dos lo editan al mismo tiempo, uno pierde su
-  trabajo. Antes de abrirlo, `git pull` y avisar al otro; al terminar, commit y push luego luego.
-  Para Studio: descargarlo (clic derecho → *Download*), editarlo en Word y subirlo de vuelta.
 - Nada de llaves, tokens ni `.env` en el repo ni en celdas de notebook.
 - Detener el espacio de Studio al terminar, y apagar o borrar lo que cobre (EC2, entrenamientos)
   en cuanto no se use.
