@@ -3,6 +3,7 @@
 Corre igual en SageMaker Studio (para probar) y como trabajo de entrenamiento de SageMaker:
 
     python -m src.training.train --subset 64 --epochs 1 --upload 0     # prueba rápida en Studio
+    python -m src.training.train --image-size 512 --cache-only 1            # solo preparar el caché a 512
     python src/training/train.py --architecture efficientnet_b0 --image-size 384 --epochs 15 \\
         --batch-size 32 --lr 3e-4 --run-id 2026-11-20-effb0-001          # lo que lanza SageMaker
 
@@ -83,6 +84,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--upload", type=int, default=1, help="1 = subir los artefactos a S3")
     p.add_argument("--download", type=int, default=1, help="1 = bajar de Kaggle las fotos que falten")
     p.add_argument("--workers", type=int, default=-1, help="Procesos del DataLoader (-1 = automático)")
+    p.add_argument("--cache-only", type=int, default=0, help="1 = solo preparar el caché de --image-size y salir")
     p.add_argument("--bucket", default=os.environ.get("S3_BUCKET_MODELS"))
     p.add_argument("--splits", default=str(ROOT / "data" / "splits.csv"))
     p.add_argument("--data-dir", default=None, help="Carpeta con train_images/ (por defecto: canal de SageMaker o DATA_DIR)")
@@ -274,6 +276,9 @@ def main(argv: list[str] | None = None) -> dict:
     not_cached = [i for i in rows.id_code if not cached_path(cache_dir, args.image_size, i).is_file()]
     ensure_images(data_dir, not_cached, bool(args.download))
     build_cache(data_dir, cache_dir, not_cached, args.image_size)
+    if args.cache_only:
+        print(f"[datos] caché completo: {len(rows)} fotos en {cache_dir / str(args.image_size)}", flush=True)
+        return {}
     parts = {name: rows[rows.split == name] for name in ("train", "val", "test")}
     print(f"[datos] {', '.join(f'{k} {len(v)}' for k, v in parts.items())} · run_id {args.run_id}", flush=True)
 
@@ -333,7 +338,9 @@ def main(argv: list[str] | None = None) -> dict:
     thresholds = choose_thresholds(val_labels, val_probs)
     val_metrics = compute_metrics(val_labels, val_probs, thresholds["referable_threshold"])
     test_metrics = compute_metrics(test_labels, test_probs, thresholds["referable_threshold"])
-    print(f"[resultado] mejor época {best_epoch} · umbrales {thresholds}", flush=True)
+    thresholds = {k: round(float(v), 4) for k, v in thresholds.items()}
+    print(f"[resultado] mejor época {best_epoch} · umbral de referible {thresholds['referable_threshold']} · "
+          f"umbral de confianza {thresholds['confidence_threshold']}", flush=True)
     print(f"test_qwk={test_metrics['qwk']:.4f} test_sensitivity={test_metrics['sensitivity_referable']:.4f} "
           f"test_specificity={test_metrics['specificity_referable']:.4f}", flush=True)
 
@@ -355,8 +362,8 @@ def main(argv: list[str] | None = None) -> dict:
         "image_size": args.image_size,
         "normalization": {"mean": list(MEAN), "std": list(STD)},
         "decision": {
-            "referable_threshold": round(float(thresholds["referable_threshold"]), 4),
-            "confidence_threshold": round(float(thresholds["confidence_threshold"]), 4),
+            "referable_threshold": thresholds["referable_threshold"],
+            "confidence_threshold": thresholds["confidence_threshold"],
             "traffic_light": TRAFFIC_LIGHT,
         },
         # Métricas en PRUEBA, con los umbrales elegidos en validación

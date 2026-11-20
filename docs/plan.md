@@ -20,9 +20,12 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   `src/data/make_splits.py`, con 21 pruebas en `tests/`.
 - [x] `src/common/quality_filter.py` (contrato 4.8), con 6 pruebas más (27 en total). Umbrales
   calibrados en `notebooks/quality.ipynb`: brillo < 28 → "oscura", nitidez < 0.5 → "borrosa".
-- [x] `src/training/train.py` (contratos 4.3 y 4.7) y `src/training/requirements.txt`, con 8 pruebas
-  más (35 en total): artefactos del contrato, reanudar tras una interrupción Spot y que el caché dé el
-  mismo tensor que `preprocess()` de la API. Falta la prueba en Studio (`--subset 64 --epochs 1`).
+- [x] `src/training/train.py` (contratos 4.3 y 4.7) y `src/training/requirements.txt`, con 9 pruebas
+  más (36 en total): artefactos del contrato, reanudar tras una interrupción Spot y que el caché dé el
+  mismo tensor que `preprocess()` de la API. Probado en Studio con fotos reales (`--subset 64
+  --epochs 1`, 37 s por época en CPU). En Studio hay solo 3.7 GB de RAM: con batch 32 se queda sin
+  memoria, así que ahí se prueba con `--batch-size 4 --workers 0` y con los kernels de los notebooks
+  apagados. En SageMaker (16 GB + GPU) se usa batch 32.
 
 ### Datos
 - [x] Dataset completo en Studio (`/home/sagemaker-user/data/aptos`, 3,662 imágenes). La descarga imagen
@@ -41,9 +44,10 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   entrenamiento. Deja `quality_scores.csv` y `quality_degraded.csv` en `DATA_DIR`.
 - [ ] Decidir de dónde lee el dataset el entrenamiento en SageMaker: volver a bajarlo de Kaggle puede
   topar con el mismo límite. Propuesta: subir a S3 solo el caché que arma `train.py` (las fotos ya
-  recortadas, mucho menos que las originales) y pasarlo como canal `cache`, con las carpetas `384/` y
-  `512/` para la comparación de modelos. Antes, medir en Studio cuánto pesan las originales y el caché
-  (`du -sh`). Hace falta que `BlindnessDetection-SageMakerRole` pueda leer ese prefijo.
+  recortadas) y pasarlo como canal `cache`, con las carpetas `384/` y `512/` para la comparación de
+  modelos. Medido en Studio: las originales pesan 8.1 GB y el caché unos 160 KB por foto a 384 px
+  (~550 MB a 384 y ~1 GB a 512). Se prepara con `--cache-only 1`. Hace falta que
+  `BlindnessDetection-SageMakerRole` pueda leer ese prefijo.
 
 ### AWS (región `us-east-1`)
 - [x] Bucket de modelos `blindness-detection-modelos-<account-id>`: versionado, cifrado, sin acceso público.
@@ -324,7 +328,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 | 3 | Datos | `notebooks/eda.ipynb` | Distribución de clases, duplicados (`imagehash`), recorte de retina y ejemplos de fotos borrosas y oscuras |
 | 4 | Datos | `src/data/make_splits.py` | Quita duplicados (incluidos los de etiquetas distintas) y hace el split estratificado 70/15/15 con semilla fija. Sube `data/splits.csv` (`id_code,diagnosis,split`) al repo |
 | 5 | Servicio | `src/common/quality_filter.py` | Contrato 4.8. Los umbrales salen de `notebooks/quality.ipynb` ✅ |
-| 6 | Entrenamiento | `src/training/train.py` | Contrato 4.7. EfficientNet-B0 (`timm`), pesos por clase, checkpoints, `model.pth` + `metadata.json` a `models/<run_id>/` (contrato 4.3). Usa `metrics.py` de Eduardo. Probar en Studio con `--subset 64 --epochs 1` ✅ (falta la prueba en Studio) |
+| 6 | Entrenamiento | `src/training/train.py` | Contrato 4.7. EfficientNet-B0 (`timm`), pesos por clase, checkpoints, `model.pth` + `metadata.json` a `models/<run_id>/` (contrato 4.3). Usa `metrics.py` de Eduardo. Probar en Studio con `--subset 64 --epochs 1` ✅ |
 | 7 | Entrenamiento | `src/training/requirements.txt` | Solo lo que no trae el contenedor de PyTorch: `timm`, `opencv-python-headless`, `pandas`, `scikit-learn` ✅ |
 | 8 | Servicio | Página web (`src/api/static/`) | Subir la foto y mostrar semáforo, recomendación, probabilidades y mapa de calor. Se construye contra el contrato 4.9 con respuestas falsas |
 | 9 | Ambos | Pruebas | `tests/` para `preprocess.py`, `make_splits.py` y `quality_filter.py` |

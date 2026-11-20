@@ -154,3 +154,11 @@ def test_full_cache_does_not_need_originals(dataset):
     shutil.rmtree(tmp_path / "data" / "train_images")
     metadata = train.main(args_for(tmp_path, splits, epochs=1))
     assert metadata["training"]["n_train"] == 20
+
+
+def test_cache_only_does_not_train(dataset, capsys):
+    tmp_path, splits = dataset
+    assert train.main(args_for(tmp_path, splits) + ["--cache-only", "1"]) == {}
+    assert len(list((tmp_path / "cache" / "64").glob("*.png"))) == 40
+    assert "epoch=" not in capsys.readouterr().out
+    assert not (tmp_path / "out" / "model.pth").exists()
