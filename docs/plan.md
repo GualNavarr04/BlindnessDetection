@@ -89,7 +89,9 @@ disco de 30 GB. Los entrenamientos se pagan aparte (GPU Spot, solo mientras corr
      ```
      Queda guardado en `~/.git-credentials`, en el disco privado del espacio (fuera del repo).
 4. `cp .env.example .env` y llenar el número de cuenta.
-5. `pip install -r requirements.txt`.
+5. `pip install --user -r requirements.txt`. El `--user` es importante: instala en `~/.local`, que
+   está en el disco del espacio y se conserva. Sin él se instala en `/opt/conda`, que se borra cada
+   vez que el espacio se apaga (y sale `No module named cv2`).
 6. **Al terminar el día:** detener el espacio (*Stop space*) aunque exista el apagado automático.
 
 **Reglas del notebook:**
