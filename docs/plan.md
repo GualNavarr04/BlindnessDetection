@@ -47,8 +47,9 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   recortadas a la retina y reducidas) a `s3://blindness-detection-modelos-<account-id>/data/aptos-cache/`,
   con `384/` (509 MB) y `512/` (868 MB), 3,466 fotos cada una. Las originales pesan 8.1 GB. Se preparó
   en Studio con `--cache-only 1` (6-7 min por tamaño).
-- [ ] Permiso de lectura de `data/aptos-cache/*` para `BlindnessDetection-SageMakerRole` (política
-  `BlindnessDetection-SageMakerPolicy`) y subir el caché desde Studio:
+- [x] Permiso de solo lectura de `data/aptos-cache/*` para `BlindnessDetection-SageMakerRole`
+  (política `BlindnessDetection-SageMakerPolicy`, sentencia `LeerCacheDataset`).
+- [ ] Subir el caché desde Studio:
   `aws s3 sync ~/data/aptos/cache/384 s3://<bucket>/data/aptos-cache/384/` (y lo mismo con `512`).
 
 ### AWS (región `us-east-1`)
