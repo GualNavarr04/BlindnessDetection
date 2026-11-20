@@ -319,6 +319,24 @@ Si la foto no pasa el filtro de calidad, regresa `quality_ok: false`, el motivo 
 campos en `null`. Si `low_confidence` es `true`, `traffic_light` es `null` y la recomendación
 es "Revisión humana". La página web se puede construir con respuestas falsas en este formato.
 
+**Página web (`src/api/static/index.html`).** Un solo archivo, sin dependencias externas. Lo que
+necesita de la API:
+
+- Servirla en `/`: `app.mount("/", StaticFiles(directory="src/api/static", html=True))`, **después**
+  de definir `/predict` y `/health` (si se monta antes, tapa esas rutas).
+- `GET /health` con respuesta 200: la página lo llama al abrir. Si no responde, pasa sola a "modo
+  demostración" con respuestas falsas y lo avisa en un letrero.
+- `POST /predict` con el campo `file`. Si algo falla, regresar un código de error con
+  `{"detail": "…"}`: la página muestra ese texto.
+- `heatmap_png_base64`: la foto recortada con el mapa de calor **ya encimado** (cuadrada), porque la
+  página la muestra junto a la original tal cual.
+- `recommendation`: el texto que ve el médico. La página usa estos mismos textos en el modo
+  demostración: "Control anual con fondo de ojo" (verde), "Referir a oftalmología" (amarillo),
+  "Referir a oftalmología pronto" (rojo) y "Revisión humana" (baja confianza).
+
+Para probarla sin API: abrir el archivo en el navegador, o `index.html?demo=rojo&sample=1`
+(escenarios `verde`, `amarillo`, `rojo`, `baja`, `borrosa`, `oscura`).
+
 ## 5. Quién hace qué
 
 Cada uno tiene tareas de las dos partes del proyecto. Las tareas se agruparon para que, dentro
@@ -335,7 +353,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 | 5 | Servicio | `src/common/quality_filter.py` | Contrato 4.8. Los umbrales salen de `notebooks/quality.ipynb` ✅ |
 | 6 | Entrenamiento | `src/training/train.py` | Contrato 4.7. EfficientNet-B0 (`timm`), pesos por clase, checkpoints, `model.pth` + `metadata.json` a `models/<run_id>/` (contrato 4.3). Usa `metrics.py` de Eduardo. Probar en Studio con `--subset 64 --epochs 1` ✅ |
 | 7 | Entrenamiento | `src/training/requirements.txt` | Solo lo que no trae el contenedor de PyTorch: `timm`, `opencv-python-headless`, `pandas`, `scikit-learn` ✅ |
-| 8 | Servicio | Página web (`src/api/static/`) | Subir la foto y mostrar semáforo, recomendación, probabilidades y mapa de calor. Se construye contra el contrato 4.9 con respuestas falsas |
+| 8 | Servicio | Página web (`src/api/static/`) | Subir la foto y mostrar semáforo, recomendación, probabilidades y mapa de calor. Se construye contra el contrato 4.9 con respuestas falsas. ✅ Prototipo en `src/api/static/index.html` (ver 4.9) |
 | 9 | Ambos | Pruebas | `tests/` para `preprocess.py`, `make_splits.py` y `quality_filter.py` |
 
 ### Eduardo

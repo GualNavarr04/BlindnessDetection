@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tamizaje de retinopatía</title>
+<!--
+  Página web del proyecto (contrato 4.9 de docs/plan.md). Un solo archivo, sin dependencias externas.
+
+  - Con la API: manda la foto a POST predict (campo "file") y muestra la respuesta.
+  - Sin API (o con ?demo=1): "modo demostración" con respuestas falsas en el mismo formato, para
+    probar la página antes de tener el modelo. Escenarios: ?demo=verde|amarillo|rojo|baja|borrosa|oscura.
+    ?sample=1 carga una foto de ejemplo dibujada (no es una foto real) y la analiza sola.
+
+  Las rutas son relativas ("predict", "health") para que funcione igual en EC2 y detrás del proxy de
+  Studio (…/proxy/8000/). La foto no se guarda en el navegador.
+-->
+<style>
+:root {
+  --bg: #f4f6f8; --card: #ffffff; --ink: #1d2733; --muted: #5b6876; --line: #dde3e9;
+  --accent: #1f5f8b; --accent-ink: #ffffff;
+  --verde: #1e7d46; --verde-bg: #e6f4ec;
+  --amarillo: #8a5a00; --amarillo-bg: #fff4d6; --amarillo-dot: #f2b705;
+  --rojo: #b3261e; --rojo-bg: #fde8e6;
+  --gris: #4a5562; --gris-bg: #eceff2;
+  --radius: 14px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+header { background: var(--card); border-bottom: 1px solid var(--line); }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+header .wrap { display: flex; align-items: center; gap: 12px; padding-top: 14px; padding-bottom: 14px; }
+.logo { width: 34px; height: 34px; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 62% 50%, #ffd9a0 0 12%, #d9622b 13% 58%, #8c2f12 59% 100%); }
+header h1 { font-size: 1.15rem; margin: 0; }
+header p { margin: 0; color: var(--muted); font-size: .9rem; }
+.demo-banner { background: #fff4d6; border-bottom: 1px solid #f0d58a; color: #6b4a00; font-size: .92rem; }
+.demo-banner .wrap { padding-top: 8px; padding-bottom: 8px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.demo-banner select { font: inherit; padding: 2px 6px; border-radius: 6px; border: 1px solid #d9bd6a; background: #fff; }
+main.wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 20px; padding-top: 20px; padding-bottom: 32px; }
+@media (max-width: 820px) { main.wrap { grid-template-columns: 1fr; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+.card h2 { font-size: 1rem; margin: 0 0 12px; }
+.drop { border: 2px dashed #b9c4cf; border-radius: 12px; padding: 28px 16px; text-align: center; cursor: pointer;
+  transition: background .15s, border-color .15s; }
+.drop:hover, .drop.over { background: #eef4f9; border-color: var(--accent); }
+.drop strong { display: block; margin-bottom: 4px; }
+.drop span { color: var(--muted); font-size: .9rem; }
+.preview { display: none; }
+.preview img { width: 100%; max-height: 420px; object-fit: contain; background: #000; border-radius: 10px; display: block; }
+.preview .name { color: var(--muted); font-size: .85rem; margin-top: 6px; word-break: break-all; }
+.actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+button { font: inherit; border-radius: 10px; padding: 10px 18px; cursor: pointer; border: 1px solid var(--line); background: #fff; color: var(--ink); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.tips { margin: 14px 0 0; padding-left: 18px; color: var(--muted); font-size: .88rem; }
+.error { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--rojo-bg); color: var(--rojo); font-size: .92rem; }
+
+.empty { color: var(--muted); text-align: center; padding: 48px 12px; }
+.empty .ring { width: 72px; height: 72px; margin: 0 auto 12px; border-radius: 50%; border: 3px solid var(--line); }
+.loading { display: none; text-align: center; padding: 48px 12px; color: var(--muted); }
+.spinner { width: 36px; height: 36px; margin: 0 auto 12px; border-radius: 50%; border: 4px solid var(--line); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#result { display: none; }
+
+.verdict { display: flex; gap: 16px; align-items: center; padding: 16px; border-radius: 12px; }
+.verdict .light { flex: none; display: flex; flex-direction: column; gap: 6px; background: #20262d; padding: 8px; border-radius: 12px; }
+.verdict .light i { width: 22px; height: 22px; border-radius: 50%; background: #3a424b; display: block; }
+.verdict .light i.on.verde { background: #34c26b; box-shadow: 0 0 10px #34c26b; }
+.verdict .light i.on.amarillo { background: var(--amarillo-dot); box-shadow: 0 0 10px var(--amarillo-dot); }
+.verdict .light i.on.rojo { background: #ec4a3c; box-shadow: 0 0 10px #ec4a3c; }
+.verdict .kicker { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.verdict .main { font-size: 1.35rem; font-weight: 700; line-height: 1.25; }
+.verdict .detail { font-size: .95rem; }
+.v-verde { background: var(--verde-bg); color: var(--verde); }
+.v-amarillo { background: var(--amarillo-bg); color: var(--amarillo); }
+.v-rojo { background: var(--rojo-bg); color: var(--rojo); }
+.v-gris { background: var(--gris-bg); color: var(--gris); }
+.v-gris .icon, .v-calidad .icon { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  font-weight: 800; font-size: 1.3rem; background: #fff; }
+.v-calidad { background: var(--amarillo-bg); color: var(--amarillo); }
+
+.section { margin-top: 18px; }
+.section h3 { font-size: .95rem; margin: 0 0 8px; }
+.bars { display: grid; gap: 6px; }
+.bar { display: grid; grid-template-columns: 9.5em 1fr 3.2em; gap: 8px; align-items: center; font-size: .9rem; }
+.bar .track { height: 12px; background: #edf1f4; border-radius: 6px; overflow: hidden; }
+.bar .fill { height: 100%; border-radius: 6px; background: #9fb3c6; }
+.bar.top .fill { background: var(--accent); }
+.bar.top { font-weight: 700; }
+.bar .pct { text-align: right; font-variant-numeric: tabular-nums; }
+.images { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.images figure { margin: 0; }
+.images img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #000; border-radius: 10px; display: block; }
+.images figcaption { font-size: .82rem; color: var(--muted); margin-top: 4px; }
+.note { font-size: .85rem; color: var(--muted); margin-top: 6px; }
+.disclaimer { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); font-size: .82rem; color: var(--muted); }
+footer { color: var(--muted); font-size: .8rem; text-align: center; padding: 0 16px 24px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo" aria-hidden="true"></div>
+    <div>
+      <h1>Tamizaje de retinopatía diabética</h1>
+      <p>Apoyo para decidir a quién referir a oftalmología</p>
+    </div>
+  </div>
+</header>
+
+<div class="demo-banner" id="demoBanner" hidden>
+  <div class="wrap">
+    <strong>Modo demostración:</strong>
+    <span id="demoWhy">las respuestas son de ejemplo, no las da el modelo.</span>
+    <label>Escenario
+      <select id="scenario">
+        <option value="auto">Al azar</option>
+        <option value="verde">Verde (sin retinopatía)</option>
+        <option value="amarillo">Amarillo (moderada)</option>
+        <option value="rojo">Rojo (proliferativa)</option>
+        <option value="baja">Baja confianza</option>
+        <option value="borrosa">Foto borrosa</option>
+        <option value="oscura">Foto oscura</option>
+      </select>
+    </label>
+    <button type="button" id="sampleBtn">Usar foto de ejemplo</button>
+  </div>
+</div>
+
+<main class="wrap">
+  <section class="card" aria-labelledby="t-foto">
+    <h2 id="t-foto">1. Foto de fondo de ojo</h2>
+    <label class="drop" id="drop" for="file">
+      <strong>Sube o arrastra la foto aquí</strong>
+      <span>JPG o PNG, de la cámara de fondo de ojo</span>
+    </label>
+    <input type="file" id="file" accept="image/png,image/jpeg" hidden>
+    <div class="preview" id="preview">
+      <img id="previewImg" alt="Foto de fondo de ojo que se va a analizar">
+      <div class="name" id="fileName"></div>
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="analyze" disabled>Analizar</button>
+      <button type="button" id="reset" hidden>Otra foto</button>
+    </div>
+    <div class="error" id="error" role="alert"></div>
+    <ul class="tips">
+      <li>La foto debe mostrar la retina completa, enfocada y bien iluminada.</li>
+      <li>Si la foto no sirve, la herramienta pide repetirla en lugar de dar un resultado.</li>
+    </ul>
+  </section>
+
+  <section class="card" aria-labelledby="t-res" aria-live="polite">
+    <h2 id="t-res">2. Resultado</h2>
+    <div class="empty" id="empty"><div class="ring"></div>Sube una foto y presiona <b>Analizar</b>.</div>
+    <div class="loading" id="loading"><div class="spinner"></div>Analizando la foto…</div>
+    <div id="result">
+      <div class="verdict" id="verdict"></div>
+      <div class="section" id="probSection">
+        <h3>Probabilidad de cada grado</h3>
+        <div class="bars" id="bars"></div>
+      </div>
+      <div class="section" id="heatSection">
+        <h3>¿En qué se fijó el modelo?</h3>
+        <div class="images">
+          <figure><img id="origImg" alt="Foto original"><figcaption>Foto original</figcaption></figure>
+          <figure><img id="heatImg" alt="Mapa de calor de las zonas que más pesaron en el resultado"><figcaption>Mapa de calor (Grad-CAM): rojo = más peso</figcaption></figure>
+        </div>
+        <p class="note">El mapa de calor ayuda a revisar el resultado; no marca lesiones con exactitud.</p>
+      </div>
+      <p class="disclaimer">Herramienta de tamizaje: no da un diagnóstico ni sustituye al oftalmólogo. <span id="runId"></span></p>
+    </div>
+  </section>
+</main>
+<footer>Proyecto académico ITESO · Modelo entrenado con APTOS 2019</footer>
+
+<script>
+(() => {
+  const CLASS_NAMES = ["Sin retinopatía", "Leve", "Moderada", "Severa", "Proliferativa"];
+  const LIGHT_TEXT = {
+    verde: { kicker: "Verde", detail: "Control anual con fondo de ojo." },
+    amarillo: { kicker: "Amarillo", detail: "Referir a oftalmología." },
+    rojo: { kicker: "Rojo", detail: "Referir a oftalmología pronto." },
+  };
+  const QUALITY_TEXT = {
+    borrosa: "La foto está borrosa. Limpia el lente, enfoca la retina y vuelve a tomarla.",
+    oscura: "La foto está muy oscura. Revisa la iluminación o la dilatación de la pupila y vuelve a tomarla.",
+  };
+  const MAX_MB = 20;
+
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  let demo = params.has("demo");
+  let file = null, imageUrl = null;
+
+  // ---------------------------------------------------------------- modo demostración
+  function setDemo(on, why) {
+    demo = on;
+    $("demoBanner").hidden = !on;
+    if (why) $("demoWhy").textContent = why;
+  }
+  if (demo) {
+    const s = params.get("demo");
+    if ([...$("scenario").options].some(o => o.value === s)) $("scenario").value = s;
+    setDemo(true);
+  } else {
+    // Si no hay API (abriste el archivo directo o la API no responde), pasa a modo demostración
+    fetch("health", { cache: "no-store" })
+      .then(r => { if (!r.ok) throw new Error(); })
+      .catch(() => setDemo(true, "no hay API conectada; las respuestas son de ejemplo, no las da el modelo."));
+  }
+
+  function fakeProbs(top, spread) {
+    const p = CLASS_NAMES.map((_, i) => Math.exp(-Math.abs(i - top) * spread) * (0.6 + Math.random() * 0.4));
+    p[top] *= 2.2;
+    const s = p.reduce((a, b) => a + b, 0);
+    return p.map(v => +(v / s).toFixed(3));
+  }
+
+  async function fakeHeatmap(img) {
+    const n = 384, c = document.createElement("canvas");
+    c.width = c.height = n;
+    const g = c.getContext("2d");
+    g.fillStyle = "#000"; g.fillRect(0, 0, n, n);
+    const k = Math.min(n / img.naturalWidth, n / img.naturalHeight);
+    const w = img.naturalWidth * k, h = img.naturalHeight * k;
+    g.drawImage(img, (n - w) / 2, (n - h) / 2, w, h);
+    g.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 4; i++) {
+      const a = Math.random() * Math.PI * 2, r = 40 + Math.random() * 110;
+      const x = n / 2 + Math.cos(a) * r, y = n / 2 + Math.sin(a) * r, R = 40 + Math.random() * 50;
+      const grad = g.createRadialGradient(x, y, 0, x, y, R);
+      grad.addColorStop(0, "rgba(255,40,0,0.75)"); grad.addColorStop(0.5, "rgba(255,200,0,0.35)"); grad.addColorStop(1, "rgba(0,0,255,0)");
+      g.fillStyle = grad; g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2); g.fill();
+    }
+    return c.toDataURL("image/png").split(",")[1];
+  }
+
+  async function fakeResponse(img) {
+    await new Promise(r => setTimeout(r, 700));
+    let s = $("scenario").value;
+    if (s === "auto") s = ["verde", "amarillo", "rojo", "baja", "borrosa"][Math.floor(Math.random() * 5)];
+    const base = { run_id: "demo", quality_ok: true, quality_reason: null };
+    if (s === "borrosa" || s === "oscura") {
+      return { ...base, quality_ok: false, quality_reason: s, predicted_class: null, class_name: null, probabilities: null,
+               traffic_light: null, recommendation: null, low_confidence: null, heatmap_png_base64: null };
+    }
+    const top = { verde: 0, amarillo: 2, rojo: 4, baja: 2 }[s];
+    const probs = s === "baja" ? [0.08, 0.3, 0.36, 0.16, 0.1] : fakeProbs(top, 1.4);
+    const light = s === "baja" ? null : s;
+    return { ...base, predicted_class: top, class_name: CLASS_NAMES[top], probabilities: probs, traffic_light: light,
+             recommendation: s === "baja" ? "Revisión humana" : LIGHT_TEXT[s].detail.replace(/\.$/, ""),
+             low_confidence: s === "baja", heatmap_png_base64: await fakeHeatmap(img) };
+  }
+
+  function sampleImage() {
+    // Retina dibujada, solo para probar la página (no es una foto real)
+    const c = document.createElement("canvas"); c.width = 800; c.height = 600;
+    const g = c.getContext("2d");
+    g.fillStyle = "#000"; g.fillRect(0, 0, 800, 600);
+    const grad = g.createRadialGradient(400, 300, 20, 400, 300, 280);
+    grad.addColorStop(0, "#d9782f"); grad.addColorStop(0.8, "#b4501d"); grad.addColorStop(1, "#5a2108");
+    g.fillStyle = grad; g.beginPath(); g.arc(400, 300, 280, 0, Math.PI * 2); g.fill();
+    const disc = g.createRadialGradient(560, 290, 2, 560, 290, 46);
+    disc.addColorStop(0, "#fff1c7"); disc.addColorStop(1, "rgba(240,170,90,0.2)");
+    g.fillStyle = disc; g.beginPath(); g.arc(560, 290, 46, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "rgba(110,20,10,0.75)"; g.lineCap = "round";
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      g.lineWidth = 6 - (i % 3) * 1.5; g.beginPath(); g.moveTo(560, 290);
+      g.bezierCurveTo(560 + Math.cos(a) * 90, 290 + Math.sin(a) * 140, 400 + Math.cos(a) * 200, 300 + Math.sin(a) * 160,
+                      400 + Math.cos(a + 0.4) * 250, 300 + Math.sin(a + 0.4) * 230);
+      g.stroke();
+    }
+    g.fillStyle = "rgba(90,20,10,0.55)"; g.beginPath(); g.arc(380, 300, 30, 0, Math.PI * 2); g.fill();
+    return new Promise(r => c.toBlob(b => r(new File([b], "ejemplo-dibujado.png", { type: "image/png" })), "image/png"));
+  }
+
+  // ---------------------------------------------------------------- subir la foto
+  function showError(msg) { $("error").textContent = msg; $("error").style.display = msg ? "block" : "none"; }
+
+  function setFile(f) {
+    showError("");
+    if (!f) return;
+    if (!/^image\/(png|jpeg)$/.test(f.type)) return showError("El archivo debe ser una foto JPG o PNG.");
+    if (f.size > MAX_MB * 1024 * 1024) return showError(`La foto pesa más de ${MAX_MB} MB.`);
+    file = f;
+    if (imageUrl) URL.revokeObjectURL(imageUrl);
+    imageUrl = URL.createObjectURL(f);
+    $("previewImg").src = imageUrl;
+    $("fileName").textContent = f.name;
+    $("preview").style.display = "block";
+    $("drop").style.display = "none";
+    $("analyze").disabled = false;
+    $("reset").hidden = false;
+    showState("empty");
+  }
+
+  function reset() {
+    file = null; $("file").value = "";
+    $("preview").style.display = "none"; $("drop").style.display = "block";
+    $("analyze").disabled = true; $("reset").hidden = true;
+    showError(""); showState("empty");
+  }
+
+  function showState(which) {
+    for (const id of ["empty", "loading", "result"]) $(id).style.display = id === which ? "block" : "none";
+    // En celular el resultado queda abajo de la foto: bajar hasta él
+    if (which === "result" && window.innerWidth <= 820) $("t-res").scrollIntoView({ behavior: "smooth" });
+  }
+
+  $("file").addEventListener("change", e => setFile(e.target.files[0]));
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => setFile(e.dataTransfer.files[0]));
+  $("reset").addEventListener("click", reset);
+  $("sampleBtn").addEventListener("click", async () => { setFile(await sampleImage()); analyze(); });
+
+  // ---------------------------------------------------------------- analizar
+  async function analyze() {
+    if (!file) return;
+    showError(""); showState("loading"); $("analyze").disabled = true;
+    try {
+      let data;
+      if (demo) {
+        data = await fakeResponse($("previewImg").complete ? $("previewImg") : await loaded($("previewImg")));
+      } else {
+        const form = new FormData(); form.append("file", file);
+        const r = await fetch("predict", { method: "POST", body: form });
+        if (!r.ok) {
+          let msg = `La API respondió ${r.status}.`;
+          try { const j = await r.json(); if (j.detail) msg += " " + (typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)); } catch (_) {}
+          throw new Error(msg);
+        }
+        data = await r.json();
+      }
+      render(data);
+    } catch (err) {
+      showState("empty");
+      showError(err.message || "No se pudo analizar la foto. Intenta de nuevo.");
+    } finally {
+      $("analyze").disabled = !file;
+    }
+  }
+  const loaded = img => new Promise(r => img.addEventListener("load", () => r(img), { once: true }));
+  $("analyze").addEventListener("click", analyze);
+
+  // ---------------------------------------------------------------- mostrar el resultado
+  function render(d) {
+    const v = $("verdict");
+    $("origImg").src = imageUrl;
+    $("runId").textContent = d.run_id ? `Modelo: ${d.run_id}.` : "";
+
+    if (!d.quality_ok) {
+      v.className = "verdict v-calidad";
+      v.innerHTML = `<div class="icon">!</div><div><div class="kicker">Repetir la foto</div>
+        <div class="main">La foto no se puede analizar</div>
+        <div class="detail">${QUALITY_TEXT[d.quality_reason] || "La calidad de la foto no es suficiente. Vuelve a tomarla."}</div></div>`;
+      $("probSection").style.display = "none";
+      $("heatSection").style.display = "none";
+      return showState("result");
+    }
+
+    if (d.low_confidence || !d.traffic_light) {
+      v.className = "verdict v-gris";
+      v.innerHTML = `<div class="icon">?</div><div><div class="kicker">Sin color · baja confianza</div>
+        <div class="main">${escapeHtml(d.recommendation || "Revisión humana")}</div>
+        <div class="detail">El modelo no está seguro del resultado. Un especialista debe revisar la foto.</div></div>`;
+    } else {
+      const t = LIGHT_TEXT[d.traffic_light];
+      v.className = `verdict v-${d.traffic_light}`;
+      v.innerHTML = `<div class="light" aria-hidden="true">${["rojo", "amarillo", "verde"].map(c =>
+          `<i class="${c}${c === d.traffic_light ? " on" : ""}"></i>`).join("")}</div>
+        <div><div class="kicker">Semáforo: ${t.kicker}</div>
+        <div class="main">${escapeHtml(d.recommendation || t.detail)}</div>
+        <div class="detail">Grado más probable: <b>${escapeHtml(d.class_name || CLASS_NAMES[d.predicted_class])}</b>
+        (${Math.round(100 * d.probabilities[d.predicted_class])}%)</div></div>`;
+    }
+
+    $("probSection").style.display = "block";
+    $("bars").innerHTML = d.probabilities.map((p, i) => `
+      <div class="bar${i === d.predicted_class ? " top" : ""}">
+        <span>${i} · ${CLASS_NAMES[i]}</span>
+        <div class="track"><div class="fill" style="width:${(100 * p).toFixed(1)}%"></div></div>
+        <span class="pct">${Math.round(100 * p)}%</span>
+      </div>`).join("");
+
+    if (d.heatmap_png_base64) {
+      $("heatImg").src = "data:image/png;base64," + d.heatmap_png_base64;
+      $("heatSection").style.display = "block";
+    } else {
+      $("heatSection").style.display = "none";
+    }
+    showState("result");
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+
+  // ?sample=1: carga la foto de ejemplo y la analiza (para capturas y presentaciones)
+  if (params.get("sample") === "1") sampleImage().then(f => { setFile(f); analyze(); });
+})();
+</script>
+</body>
+</html>
