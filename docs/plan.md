@@ -41,8 +41,9 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   entrenamiento. Deja `quality_scores.csv` y `quality_degraded.csv` en `DATA_DIR`.
 - [ ] Decidir de dónde lee el dataset el entrenamiento en SageMaker: volver a bajarlo de Kaggle puede
   topar con el mismo límite. Propuesta: subir a S3 solo el caché que arma `train.py` (las fotos ya
-  recortadas a 384 px, cientos de MB en lugar de 10 GB) y pasarlo como canal `cache`. Hace falta que
-  `BlindnessDetection-SageMakerRole` pueda leer ese prefijo.
+  recortadas, mucho menos que las originales) y pasarlo como canal `cache`, con las carpetas `384/` y
+  `512/` para la comparación de modelos. Antes, medir en Studio cuánto pesan las originales y el caché
+  (`du -sh`). Hace falta que `BlindnessDetection-SageMakerRole` pueda leer ese prefijo.
 
 ### AWS (región `us-east-1`)
 - [x] Bucket de modelos `blindness-detection-modelos-<account-id>`: versionado, cifrado, sin acceso público.
@@ -171,6 +172,8 @@ def to_tensor(img: np.ndarray, size: int = IMAGE_SIZE) -> torch.Tensor:  # (3, s
 ```
 
 Lo usan el entrenamiento y la API, para que el modelo vea las fotos igual en los dos lados.
+**La API debe usar el tamaño del modelo, no el 384 por defecto:** `to_tensor(img, metadata["image_size"])`,
+porque vamos a comparar un modelo a 384 y otro a 512 (sección 5, "Entrenamientos").
 Los aumentos de datos (rotaciones, brillo) **no** van aquí: solo los usa `train.py`.
 
 ### 4.3 Artefactos del modelo — `models/<run_id>/`
@@ -345,6 +348,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 |---|---|
 | Acordar los contratos | Sección 4, antes de empezar |
 | Entrenamientos | Corrida corta (`--subset 64 --epochs 1`), corrida completa, revisar métricas y umbrales, promover con `promote_model.py`. Kevin ajusta el modelo, Eduardo lanza y revisa en CloudWatch |
+| Comparación de modelos | **A:** EfficientNet-B0 a 384 px. **B:** EfficientNet-B0 a 512 px. Todo lo demás igual (división, semilla, épocas, lr, batch). La pregunta: ¿más resolución ayuda a ver los microaneurismas de la clase leve? Se elige con validación (kappa y sensibilidad de referibles) y se reporta en prueba, junto con el error por clase y por cámara (de `predictions.csv`). Si a 512 no cabe batch 32 en la GPU, se baja a 16 en **los dos** |
 | Prueba de punta a punta | Con el modelo real en `models/current/`, primero en Studio y luego en EC2 |
 
 En Studio, la API se puede probar con `TestClient` (sin levantar servidor) o con `uvicorn` en
