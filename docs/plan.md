@@ -1,6 +1,6 @@
 # Plan de trabajo
 
-Estado al 17 de noviembre de 2026. Este documento dice qué ya está hecho, dónde y cómo vamos a
+Estado al 19 de noviembre de 2026. Este documento dice qué ya está hecho, dónde y cómo vamos a
 trabajar, qué falta y quién hace qué. Los dos trabajamos en las dos partes del proyecto (datos y
 entrenamiento, y servicio y monitoreo). Para no esperarnos, cada pieza que conecta el trabajo de
 uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al principio.
@@ -15,6 +15,19 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
 
 ### Código
 - [x] `src/training/promote_model.py`: promueve un `run_id` a `models/current/`.
+- [x] `src/data/metrics.py` (contrato 4.6): kappa cuadrático, sensibilidad/especificidad de referibles y elección de umbrales.
+- [x] `src/common/preprocess.py` (contrato 4.2) y `src/data/download_kaggle.py` (contrato 4.1), con 14 pruebas en `tests/`.
+
+### Datos
+- [x] Dataset completo en Studio (`/home/sagemaker-user/data/aptos`, 3,662 imágenes). La descarga imagen
+  por imagen se cortó porque Kaggle limitó la cuenta (429 por 72 h); se bajó el zip completo desde la
+  página de Kaggle y se extrajo `train.csv` y `train_images/`.
+- [x] `notebooks/eda.ipynb` ejecutado con el dataset completo y con conclusiones (sección 7): pesos por
+  clase, riesgo de que el modelo aprenda la cámara, 145 grupos de duplicados (39 con etiquetas
+  distintas, quedan 3,466 imágenes) y umbrales de calidad por ajustar. Deja `duplicates.csv` e
+  `image_stats.csv` en `DATA_DIR`.
+- [ ] Decidir de dónde lee el dataset el entrenamiento en SageMaker: volver a bajarlo de Kaggle puede
+  topar con el mismo límite. Propuesta: copiarlo una vez a S3.
 
 ### AWS (región `us-east-1`)
 - [x] Bucket de modelos `blindness-detection-modelos-<account-id>`: versionado, cifrado, sin acceso público.
