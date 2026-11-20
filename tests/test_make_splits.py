@@ -38,6 +38,16 @@ def test_drop_duplicates_keeps_one_per_group(data):
     assert sorted(removed.reason) == ["copia", "copia", "etiquetas distintas", "etiquetas distintas"]
 
 
+def test_drop_duplicates_with_eda_columns(data):
+    # duplicates.csv del EDA trae también diagnosis y conflicting_labels
+    labels, duplicates, stats = data
+    full = duplicates.merge(labels, on="id_code")
+    full["conflicting_labels"] = full.groupby("dup_group").diagnosis.transform("nunique") > 1
+    kept, removed = drop_duplicates(labels, full, stats)
+    assert len(kept) == len(labels) - 4
+    assert list(removed.columns) == ["id_code", "diagnosis", "dup_group", "reason"]
+
+
 def test_drop_duplicates_without_stats_keeps_first_id(data):
     labels, duplicates, _ = data
     kept, _ = drop_duplicates(labels, duplicates)
