@@ -295,7 +295,7 @@ def main(argv: list[str] | None = None) -> dict:
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, pct_start=0.1,
                                                     total_steps=max(1, args.epochs * len(train_loader)))
     scaler = torch.amp.GradScaler(device.type, enabled=device.type == "cuda")
-    print(f"[modelo] {args.architecture} en {device} · pesos por clase {weights.numpy().round(2).tolist()}", flush=True)
+    print(f"[modelo] {args.architecture} en {device} · pesos por clase {[round(float(w), 2) for w in weights]}", flush=True)
 
     # --- reanudar si hay checkpoint de esta misma corrida (interrupción Spot)
     last_ckpt, best_ckpt = checkpoint_dir / "last.pth", checkpoint_dir / "best.pth"
@@ -367,7 +367,7 @@ def main(argv: list[str] | None = None) -> dict:
         "training": {
             "epochs": args.epochs, "best_epoch": best_epoch, "batch_size": args.batch_size, "lr": args.lr,
             "weight_decay": args.weight_decay, "subset": args.subset, "seed": args.seed,
-            "pretrained": bool(args.pretrained), "class_weights": weights.numpy().round(4).tolist(),
+            "pretrained": bool(args.pretrained), "class_weights": [round(float(w), 4) for w in weights],
             "n_train": int(len(parts["train"])), "device": str(device),
             "duration_s": round(time.time() - started),
         },
