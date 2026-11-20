@@ -20,6 +20,9 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   `src/data/make_splits.py`, con 21 pruebas en `tests/`.
 - [x] `src/common/quality_filter.py` (contrato 4.8), con 6 pruebas más (27 en total). Umbrales
   calibrados en `notebooks/quality.ipynb`: brillo < 28 → "oscura", nitidez < 0.5 → "borrosa".
+- [x] `src/training/train.py` (contratos 4.3 y 4.7) y `src/training/requirements.txt`, con 8 pruebas
+  más (35 en total): artefactos del contrato, reanudar tras una interrupción Spot y que el caché dé el
+  mismo tensor que `preprocess()` de la API. Falta la prueba en Studio (`--subset 64 --epochs 1`).
 
 ### Datos
 - [x] Dataset completo en Studio (`/home/sagemaker-user/data/aptos`, 3,662 imágenes). La descarga imagen
@@ -37,7 +40,9 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   desenfoque fuerte y el 88% de las casi negras; del dataset solo 2 fotos, que se quedan en el
   entrenamiento. Deja `quality_scores.csv` y `quality_degraded.csv` en `DATA_DIR`.
 - [ ] Decidir de dónde lee el dataset el entrenamiento en SageMaker: volver a bajarlo de Kaggle puede
-  topar con el mismo límite. Propuesta: copiarlo una vez a S3.
+  topar con el mismo límite. Propuesta: subir a S3 solo el caché que arma `train.py` (las fotos ya
+  recortadas a 384 px, cientos de MB en lugar de 10 GB) y pasarlo como canal `cache`. Hace falta que
+  `BlindnessDetection-SageMakerRole` pueda leer ese prefijo.
 
 ### AWS (región `us-east-1`)
 - [x] Bucket de modelos `blindness-detection-modelos-<account-id>`: versionado, cifrado, sin acceso público.
@@ -240,11 +245,25 @@ python train.py --architecture efficientnet_b0 --image-size 384 --epochs 15 \
                 --batch-size 32 --lr 3e-4 --subset 0 --run-id 2026-11-20-effb0-001
 ```
 
-- `--subset N`: usar solo N imágenes (0 = todas), para pruebas rápidas.
-- Lee `KAGGLE_TOKEN_PARAM` y `S3_BUCKET_MODELS` de variables de entorno.
-- Guarda checkpoints en `/opt/ml/checkpoints` (para Spot).
+- `--subset N`: usar solo N imágenes de entrenamiento y N/4 de validación y prueba (0 = todas).
+- Interruptores 0/1, porque SageMaker pasa todo como `--nombre valor`: `--pretrained`, `--upload`
+  (subir a S3) y `--download` (bajar de Kaggle lo que falte). Los tres son 1 por defecto.
+- Lee `KAGGLE_TOKEN_PARAM` y `S3_BUCKET_MODELS` de variables de entorno, y `GIT_COMMIT` si el
+  lanzador lo pasa (en el contenedor no hay `.git`).
+- Datos: canal `cache` (fotos ya recortadas, `<size>/<id_code>.png`) o canal `train` (originales,
+  `train_images/`). Sin ninguno, baja de Kaggle las fotos que falten.
+- Guarda checkpoints en `/opt/ml/checkpoints` (para Spot) y al reiniciar sigue de la última época.
 - Imprime cada época en este formato, para que `metric_definitions` lo lea:
-  `epoch=3 train_loss=0.512 val_loss=0.601 val_qwk=0.812`.
+  `epoch=3 train_loss=0.512 val_loss=0.601 val_qwk=0.812`. Al final: `test_qwk=… test_sensitivity=…
+  test_specificity=…`.
+- Además de `model.pth` y `metadata.json` sube `predictions.csv` (probabilidades de validación y
+  prueba), para evaluar por clase y por cámara sin volver a correr el modelo. En `metadata.json`,
+  `metrics` son de **prueba** (con los umbrales elegidos en validación) y `validation_metrics` de
+  validación.
+- Para el lanzador: `source_dir` es la raíz del repo (usa `src/` y `data/splits.csv`),
+  `entry_point="src/training/train.py"`, y `src/training/requirements.txt` debe quedar como
+  `requirements.txt` en la raíz del `source_dir` (el de la raíz del repo trae FastAPI y otras cosas
+  que el entrenamiento no usa).
 
 Mientras `train.py` no existe, `launch_sagemaker.py` se prueba con un script falso que acepte
 estos argumentos y escriba un modelo de prueba.
@@ -302,8 +321,8 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 | 3 | Datos | `notebooks/eda.ipynb` | Distribución de clases, duplicados (`imagehash`), recorte de retina y ejemplos de fotos borrosas y oscuras |
 | 4 | Datos | `src/data/make_splits.py` | Quita duplicados (incluidos los de etiquetas distintas) y hace el split estratificado 70/15/15 con semilla fija. Sube `data/splits.csv` (`id_code,diagnosis,split`) al repo |
 | 5 | Servicio | `src/common/quality_filter.py` | Contrato 4.8. Los umbrales salen de `notebooks/quality.ipynb` ✅ |
-| 6 | Entrenamiento | `src/training/train.py` | Contrato 4.7. EfficientNet-B0 (`timm`), pesos por clase, checkpoints, `model.pth` + `metadata.json` a `models/<run_id>/` (contrato 4.3). Usa `metrics.py` de Eduardo. Probar en Studio con `--subset 64 --epochs 1` |
-| 7 | Entrenamiento | `src/training/requirements.txt` | Solo lo del contenedor: `timm`, `kaggle>=1.8`, `imagehash`, `boto3` |
+| 6 | Entrenamiento | `src/training/train.py` | Contrato 4.7. EfficientNet-B0 (`timm`), pesos por clase, checkpoints, `model.pth` + `metadata.json` a `models/<run_id>/` (contrato 4.3). Usa `metrics.py` de Eduardo. Probar en Studio con `--subset 64 --epochs 1` ✅ (falta la prueba en Studio) |
+| 7 | Entrenamiento | `src/training/requirements.txt` | Solo lo que no trae el contenedor de PyTorch: `timm`, `opencv-python-headless`, `pandas`, `scikit-learn` ✅ |
 | 8 | Servicio | Página web (`src/api/static/`) | Subir la foto y mostrar semáforo, recomendación, probabilidades y mapa de calor. Se construye contra el contrato 4.9 con respuestas falsas |
 | 9 | Ambos | Pruebas | `tests/` para `preprocess.py`, `make_splits.py` y `quality_filter.py` |
 

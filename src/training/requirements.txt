@@ -1,0 +1,6 @@
+# Lo que el contenedor de PyTorch de SageMaker no trae (torch, torchvision, numpy y boto3 ya vienen).
+# launch_sagemaker.py debe dejar este archivo como requirements.txt en la raíz del source_dir.
+timm
+opencv-python-headless
+pandas
+scikit-learn

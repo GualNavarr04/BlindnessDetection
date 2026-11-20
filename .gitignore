@@ -27,3 +27,6 @@ kaggle.json
 .vscode/
 .idea/
 .DS_Store
+
+# Salidas locales de train.py (modelos y checkpoints de prueba)
+outputs/
