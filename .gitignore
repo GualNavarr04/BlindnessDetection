@@ -1,6 +1,8 @@
-# Datos (el dataset se descarga de Kaggle al entrenar, no va en git)
+# Datos: las imágenes no van en git; la división (splits.csv) y los grupos de duplicados sí
 data/*
 !data/.gitkeep
+!data/splits.csv
+!data/duplicates.csv
 *.zip
 
 # Modelos entrenados (viven en S3)
