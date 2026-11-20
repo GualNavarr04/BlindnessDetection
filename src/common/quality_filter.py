@@ -5,14 +5,17 @@ pasa, pide repetir la toma en lugar de dar un resultado poco confiable.
 
 Dos mediciones, sobre la retina recortada y llevada a QUALITY_SIZE × QUALITY_SIZE en gris:
 - brillo:  gris promedio dentro de la retina (0-255).
-- nitidez: varianza del Laplaciano dividida entre el brillo al cuadrado (× 1000). En el EDA vimos
-  que la varianza del Laplaciano sola también baja en fotos oscuras aunque estén enfocadas; al
-  dividir entre el brillo², oscurecer la foto ya no cambia la nitidez y solo el desenfoque la baja.
+- nitidez: varianza del Laplaciano dividida entre el brillo (× 10). En el EDA vimos que la varianza
+  del Laplaciano sola también baja en fotos oscuras aunque estén enfocadas. Primero probamos dividir
+  entre el brillo², pero se pasaba al otro lado: las fotos oscuras salían *más* nítidas y las muy
+  claras parecían borrosas. Dividiendo entre el brillo la nitidez casi no depende de él, y el
+  desenfoque la sigue bajando mucho más que oscurecer la foto.
 
 Las dos se miden dejando fuera una orilla de EDGE_MARGIN pixeles: el borde del círculo contra el
 fondo negro es un "borde" muy fuerte que no dice nada del enfoque.
 
-Los umbrales salen de notebooks/quality.ipynb con el dataset completo.
+Los umbrales salen de notebooks/quality.ipynb: el dataset casi no tiene fotos malas, así que se
+eligen con fotos buenas degradadas a propósito (desenfoque y oscuridad).
 """
 
 from __future__ import annotations
@@ -28,9 +31,9 @@ QUALITY_SIZE = 512
 EDGE_MARGIN = 8           # pixeles (a QUALITY_SIZE) que se quitan de la orilla de la retina
 MIN_RETINA_FRACTION = 0.05  # si la "retina" ocupa menos que esto, la foto es prácticamente negra
 
-# PROVISIONALES: se reemplazan con los que salgan de notebooks/quality.ipynb
-BRIGHTNESS_THRESHOLD = 30.0   # gris promedio de la retina; menor = oscura
-SHARPNESS_THRESHOLD = 1.0     # nitidez normalizada; menor = borrosa
+# PROVISIONALES (probados con 150 fotos): se confirman con notebooks/quality.ipynb
+BRIGHTNESS_THRESHOLD = 25.0   # gris promedio de la retina; menor = oscura
+SHARPNESS_THRESHOLD = 0.5     # nitidez normalizada; menor = borrosa
 
 
 @dataclass
@@ -54,7 +57,7 @@ def quality_scores(img: np.ndarray, cropped: bool = False) -> dict:
 
     brightness = float(gray[inside].mean())
     laplacian = cv2.Laplacian(gray, cv2.CV_32F)
-    sharpness = float(laplacian[inside].var() / brightness**2 * 1000)
+    sharpness = float(laplacian[inside].var() / brightness * 10)
     return {"brightness": round(brightness, 2), "sharpness": round(sharpness, 4)}
 
 
