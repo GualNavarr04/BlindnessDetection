@@ -16,7 +16,8 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
 ### Código
 - [x] `src/training/promote_model.py`: promueve un `run_id` a `models/current/`.
 - [x] `src/data/metrics.py` (contrato 4.6): kappa cuadrático, sensibilidad/especificidad de referibles y elección de umbrales.
-- [x] `src/common/preprocess.py` (contrato 4.2) y `src/data/download_kaggle.py` (contrato 4.1), con 14 pruebas en `tests/`.
+- [x] `src/common/preprocess.py` (contrato 4.2), `src/data/download_kaggle.py` (contrato 4.1) y
+  `src/data/make_splits.py`, con 21 pruebas en `tests/`.
 
 ### Datos
 - [x] Dataset completo en Studio (`/home/sagemaker-user/data/aptos`, 3,662 imágenes). La descarga imagen
@@ -26,6 +27,9 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   clase, riesgo de que el modelo aprenda la cámara, 145 grupos de duplicados (39 con etiquetas
   distintas, quedan 3,466 imágenes) y umbrales de calidad por ajustar. Deja `duplicates.csv` e
   `image_stats.csv` en `DATA_DIR`.
+- [x] División en `data/splits.csv` con `notebooks/splits.ipynb`: se quitan 196 duplicados y quedan
+  3,466 imágenes, train 2,426 / val 520 / test 520, estratificado (semilla 42). Las 8 verificaciones
+  del notebook pasan y las cámaras quedan repartidas en las tres partes.
 - [ ] Decidir de dónde lee el dataset el entrenamiento en SageMaker: volver a bajarlo de Kaggle puede
   topar con el mismo límite. Propuesta: copiarlo una vez a S3.
 
