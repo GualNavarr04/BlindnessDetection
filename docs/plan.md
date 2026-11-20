@@ -42,17 +42,19 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   (correlación con el brillo 0.01, antes 0.77). Con fotos de prueba degradadas se rechaza el 99% del
   desenfoque fuerte y el 88% de las casi negras; del dataset solo 2 fotos, que se quedan en el
   entrenamiento. Deja `quality_scores.csv` y `quality_degraded.csv` en `DATA_DIR`.
-- [ ] Decidir de dónde lee el dataset el entrenamiento en SageMaker: volver a bajarlo de Kaggle puede
-  topar con el mismo límite. Propuesta: subir a S3 solo el caché que arma `train.py` (las fotos ya
-  recortadas) y pasarlo como canal `cache`, con las carpetas `384/` y `512/` para la comparación de
-  modelos. Medido en Studio: las originales pesan 8.1 GB y el caché unos 160 KB por foto a 384 px
-  (~550 MB a 384 y ~1 GB a 512). Se prepara con `--cache-only 1`. Hace falta que
-  `BlindnessDetection-SageMakerRole` pueda leer ese prefijo.
+- [x] Decidido de dónde lee el dataset el entrenamiento en SageMaker: de S3, no de Kaggle (volver a
+  bajarlo puede topar con el mismo límite). Se sube solo el caché que arma `train.py` (las fotos ya
+  recortadas a la retina y reducidas) a `s3://blindness-detection-modelos-<account-id>/data/aptos-cache/`,
+  con `384/` (509 MB) y `512/` (868 MB), 3,466 fotos cada una. Las originales pesan 8.1 GB. Se preparó
+  en Studio con `--cache-only 1` (6-7 min por tamaño).
+- [ ] Permiso de lectura de `data/aptos-cache/*` para `BlindnessDetection-SageMakerRole` (política
+  `BlindnessDetection-SageMakerPolicy`) y subir el caché desde Studio:
+  `aws s3 sync ~/data/aptos/cache/384 s3://<bucket>/data/aptos-cache/384/` (y lo mismo con `512`).
 
 ### AWS (región `us-east-1`)
 - [x] Bucket de modelos `blindness-detection-modelos-<account-id>`: versionado, cifrado, sin acceso público.
 - [x] Bucket de predicciones `blindness-detection-predicciones-<account-id>`: borra `logs/predictions/` a los 90 días.
-- [x] Rol `BlindnessDetection-SageMakerRole`: escribe `models/*` y lee el token de Kaggle.
+- [x] Rol `BlindnessDetection-SageMakerRole`: escribe `models/*`, lee `data/aptos-cache/*` y lee el token de Kaggle.
 - [x] Rol `BlindnessDetection-EC2Role` (con perfil de instancia): lee `models/*` y escribe `logs/predictions/*`.
 - [x] Rol `BlindnessDetection-StudioRole`: el de los notebooks de Studio (sección 2).
 - [x] Token de Kaggle en Parameter Store: `/blindness-detection/kaggle-token` (`SecureString`).
@@ -258,7 +260,9 @@ python train.py --architecture efficientnet_b0 --image-size 384 --epochs 15 \
 - Lee `KAGGLE_TOKEN_PARAM` y `S3_BUCKET_MODELS` de variables de entorno, y `GIT_COMMIT` si el
   lanzador lo pasa (en el contenedor no hay `.git`).
 - Datos: canal `cache` (fotos ya recortadas, `<size>/<id_code>.png`) o canal `train` (originales,
-  `train_images/`). Sin ninguno, baja de Kaggle las fotos que falten.
+  `train_images/`). Sin ninguno, baja de Kaggle las fotos que falten. **Lo que usamos:** el canal
+  `cache` apuntando a `s3://<bucket>/data/aptos-cache/`, que tiene `384/` y `512/`; `train.py` toma
+  la carpeta del `--image-size` que reciba. Con el caché completo no hace falta el token de Kaggle.
 - Guarda checkpoints en `/opt/ml/checkpoints` (para Spot) y al reiniciar sigue de la última época.
 - Imprime cada época en este formato, para que `metric_definitions` lo lea:
   `epoch=3 train_loss=0.512 val_loss=0.601 val_qwk=0.812`. Al final: `test_qwk=… test_sensitivity=…
@@ -339,7 +343,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 |---|---|---|---|
 | 1 | Datos | `src/data/metrics.py` | Contrato 4.6. Funciones puras, no necesita datos reales para empezar |
 | 2 | Servicio | `scripts/make_dummy_model.py` | `model.pth` + `metadata.json` de prueba que cumplen el contrato 4.3 (EfficientNet-B0 con pesos de ImageNet, umbrales inventados). Sirve también de `train.py` falso para probar el lanzamiento |
-| 3 | Entrenamiento | `src/training/launch_sagemaker.py` | PyTorch con Python 3.11, `ml.g4dn.xlarge` Spot, `max_run`/`max_wait`, `checkpoint_s3_uri`, `metric_definitions` (contrato 4.7), variables `KAGGLE_TOKEN_PARAM` y `S3_BUCKET_MODELS`. Probarlo primero con el modelo de prueba (#2) |
+| 3 | Entrenamiento | `src/training/launch_sagemaker.py` | PyTorch con Python 3.11, `ml.g4dn.xlarge` Spot, `max_run`/`max_wait`, `checkpoint_s3_uri`, `metric_definitions` (contrato 4.7), variables `KAGGLE_TOKEN_PARAM` y `S3_BUCKET_MODELS`, canal `cache` = `s3://<bucket>/data/aptos-cache/` (ver 4.7). Probarlo primero con el modelo de prueba (#2) |
 | 4 | Servicio | `src/common/gradcam.py` | Grad-CAM sobre la última capa convolucional; funciona con cualquier modelo de `timm` |
 | 5 | Servicio | `src/api/` | FastAPI con `POST /predict` (contrato 4.9) y `GET /health`: calidad → modelo → semáforo/baja confianza → Grad-CAM. Carga `models/current/` al arrancar y sirve la página web de Kevin |
 | 6 | Servicio | Registro y métricas | Predicción a S3 (contrato 4.4) y métricas al namespace `BlindnessDetection`: predicciones, latencia, errores, rechazos por calidad, conteo por clase |
@@ -377,6 +381,10 @@ el puerto 8000 y abrirla en `…/jupyterlab/default/proxy/8000/`.
   o abre el pull request y que él lo revise.
 - `src/api/static/` (página web) es de Kevin; el resto de `src/api/` es de Eduardo.
 - Cambiar un contrato (sección 4) se avisa antes de hacer push.
+- El reporte final está en `docs/Reporte_Final_Proyecto.docx` y lo editamos los dos. Git no puede
+  juntar cambios de dos personas en un Word: si los dos lo editan al mismo tiempo, uno pierde su
+  trabajo. Antes de abrirlo, `git pull` y avisar al otro; al terminar, commit y push luego luego.
+  Para Studio: descargarlo (clic derecho → *Download*), editarlo en Word y subirlo de vuelta.
 - Nada de llaves, tokens ni `.env` en el repo ni en celdas de notebook.
 - Detener el espacio de Studio al terminar, y apagar o borrar lo que cobre (EC2, entrenamientos)
   en cuanto no se use.

@@ -4,7 +4,7 @@
 
 ## Flujo
 
-1. **Kaggle → Amazon SageMaker AI:** el trabajo de entrenamiento descarga el dataset APTOS 2019 directo de Kaggle y entrena el modelo en una instancia con GPU.
+1. **Kaggle → Amazon S3 → Amazon SageMaker AI:** el dataset APTOS 2019 se baja de Kaggle una vez en SageMaker Studio. Ahí `train.py --cache-only 1` recorta cada foto a la retina y la reduce a 384 y 512 px, y esa versión se sube a `data/aptos-cache/` en el bucket de modelos (1.4 GB en lugar de 8.1 GB). El trabajo de entrenamiento la recibe como canal `cache` y entrena en una instancia con GPU. Así no depende de Kaggle, que ya nos limitó la cuenta una vez por descargar imagen por imagen.
 2. **Amazon SageMaker AI → Amazon S3:** el modelo entrenado y su `metadata.json` (umbrales de decisión y de confianza, métricas de validación) se guardan en `models/<run_id>/`, el historial completo de entrenamientos.
 3. **Promoción a producción:** después de revisar las métricas de un `run_id`, se promueve copiando sus archivos a `models/current/` — ver convención abajo. Es un paso manual/deliberado, no automático.
 4. **Amazon S3 → Amazon EC2:** la página web y la API de inferencia (FastAPI) cargan el modelo **siempre desde `models/current/`**, nunca de un `run_id` directamente.
@@ -37,9 +37,9 @@ corre desde la terminal de un integrante con sus credenciales de AWS, no desde l
 | | Modelos | Registro de predicciones |
 |---|---|---|
 | Bucket | `blindness-detection-modelos-<account-id>` | `blindness-detection-predicciones-<account-id>` |
-| Prefijo | `models/<run_id>/` (historial) y `models/current/` (producción) | `logs/predictions/AAAA/MM/DD/<uuid>.json` |
-| Escribe | SageMaker AI (entrenamiento) y `promote_model.py` | EC2 (API) |
-| Lee | EC2 (API), desde `models/current/` | — |
+| Prefijo | `models/<run_id>/` (historial), `models/current/` (producción) y `data/aptos-cache/{384,512}/<id_code>.png` (dataset preparado) | `logs/predictions/AAAA/MM/DD/<uuid>.json` |
+| Escribe | SageMaker AI (entrenamiento) y `promote_model.py`; el dataset preparado se sube una vez desde Studio | EC2 (API) |
+| Lee | EC2 (API), desde `models/current/`; SageMaker AI, el dataset preparado | — |
 | Versionado | Activado | Desactivado |
 | Ciclo de vida | Aborta subidas incompletas a los 7 días | Borra `logs/predictions/` a los 90 días |
 
@@ -55,7 +55,7 @@ políticas son en línea y los dos roles tienen el tag `Project=BlindnessDetecti
 | | `BlindnessDetection-SageMakerRole` | `BlindnessDetection-EC2Role` |
 |---|---|---|
 | Lo usa | Trabajos de entrenamiento de SageMaker AI (solo de nuestra cuenta) | La instancia EC2, con el perfil de instancia `BlindnessDetection-EC2Role` |
-| Bucket de modelos | Leer y escribir `models/*` | Solo leer `models/*` |
+| Bucket de modelos | Leer y escribir `models/*`; solo leer `data/aptos-cache/*` | Solo leer `models/*` |
 | Bucket de predicciones | Sin acceso | Solo escribir `logs/predictions/*` |
 | Otro S3 | Leer y escribir el bucket default `sagemaker-us-east-1-<account-id>` (código del job) | — |
 | CloudWatch Logs | Grupos `/aws/sagemaker/*` | Grupos `/blindness-detection/*` |
@@ -87,13 +87,14 @@ flowchart LR
 
     subgraph AWS["AWS Cloud · Región us-east-1"]
         SM[Amazon SageMaker<br/>Entrenamiento con GPU]
-        S3m[(Amazon S3<br/>models/run_id · historial<br/>models/current · producción)]
+        S3m[(Amazon S3<br/>data/aptos-cache · dataset preparado<br/>models/run_id · historial<br/>models/current · producción)]
         EC2[Amazon EC2<br/>Página web + API FastAPI<br/>Filtro de calidad · Modelo · Baja confianza<br/>Semáforo + Grad-CAM]
         CW[Amazon CloudWatch<br/>Logs, métricas y alarma]
         S3r[(Amazon S3<br/>Registro de predicciones<br/>sin datos del paciente)]
     end
 
-    K -->|Descarga el dataset| SM
+    K -->|Se baja una vez en Studio,<br/>se prepara y se sube| S3m
+    S3m -->|Dataset preparado| SM
     SM -->|Guarda el modelo| S3m
     S3m -->|Carga models/current/| EC2
     U <--> EC2

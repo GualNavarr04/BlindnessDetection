@@ -88,11 +88,12 @@ más que un falso positivo.
 - **Amazon S3:** almacenamiento del proyecto, en dos buckets. Uno de modelos: guarda cada
   entrenamiento en `models/<run_id>/` y el modelo que está en producción en `models/current/`
   (la API siempre carga de ahí). Otro de predicciones: el registro de cada predicción que hace la
-  API, sin datos que identifiquen al paciente. El dataset no se guarda en S3: se descarga directo
-  de Kaggle cuando se entrena.
+  API, sin datos que identifiquen al paciente. Del dataset solo se guarda en S3 una versión
+  preparada para entrenar (`data/aptos-cache/`): cada foto ya recortada a la retina y reducida a
+  384 y a 512 px (1.4 GB en lugar de los 8.1 GB de las originales).
 - **Amazon SageMaker AI:** lo usamos para entrenar los modelos. Lanzamos trabajos de entrenamiento
-  en instancias con GPU que descargan el dataset directo de Kaggle y, al terminar, guardan el
-  modelo entrenado en S3. La instancia se apaga sola al finalizar, así que solo se paga el tiempo
+  en instancias con GPU que leen las fotos preparadas de S3 y, al terminar, guardan el modelo
+  entrenado en S3. La instancia se apaga sola al finalizar, así que solo se paga el tiempo
   de entrenamiento.
 - **Amazon EC2:** es el servidor donde corren la página web y nuestra API con FastAPI. Descarga el
   modelo desde S3, recibe una foto de fondo de ojo, revisa su calidad y regresa el semáforo, el
@@ -106,7 +107,9 @@ más que un falso positivo.
 
 ![Diagrama de arquitectura](docs/arquitectura.png)
 
-1. **SageMaker AI** descarga el dataset APTOS 2019 directo de Kaggle y entrena el modelo con GPU.
+1. El dataset APTOS 2019 se descarga de Kaggle una vez en SageMaker Studio, donde se recorta y se
+   reduce cada foto. Esa versión preparada se sube a **Amazon S3** (`data/aptos-cache/`), y
+   **SageMaker AI** la lee de ahí para entrenar el modelo con GPU.
 2. El modelo entrenado se guarda en **Amazon S3**, en `models/<run_id>/`. Tras revisar sus
    métricas, se promueve a `models/current/` (el que usa producción).
 3. **EC2** carga el modelo desde `models/current/` en S3 y sirve la página web y la API de
@@ -119,7 +122,8 @@ más que un falso positivo.
 Todos los servicios están en la región `us-east-1`. Los modelos se guardan en
 `s3://blindness-detection-modelos-<account-id>/models/` y el registro de predicciones en
 `s3://blindness-detection-predicciones-<account-id>/logs/predictions/`. Cada servicio tiene su
-propio rol IAM con permisos mínimos: `BlindnessDetection-SageMakerRole` (escribe modelos) y
+propio rol IAM con permisos mínimos: `BlindnessDetection-SageMakerRole` (lee el dataset preparado
+y escribe modelos) y
 `BlindnessDetection-EC2Role` (lee modelos y escribe predicciones). Más detalle de buckets, roles y
 convenciones en [docs/arquitectura.md](docs/arquitectura.md).
 
@@ -129,11 +133,12 @@ convenciones en [docs/arquitectura.md](docs/arquitectura.md).
 ├── README.md
 ├── requirements.txt
 ├── .gitignore
-├── data/                 # vacío: el dataset se descarga de Kaggle al entrenar
-├── notebooks/            # análisis y visualización de datos (EDA)
-├── docs/                 # arquitectura y plan de trabajo (plan.md)
+├── data/                 # splits.csv (división train/val/test) y duplicates.csv; las fotos no van en git
+├── notebooks/            # EDA, división del dataset y calibración del filtro de calidad
+├── docs/                 # arquitectura, plan de trabajo (plan.md) y reporte final (Word)
 ├── src/
 │   ├── data/             # scripts para descargar y preparar el dataset
+│   ├── common/           # preprocesamiento y filtro de calidad (los usan entrenamiento y API)
 │   ├── training/         # train.py (SageMaker AI) y promote_model.py (publica a producción)
 │   └── api/              # página web y API con FastAPI (corre en EC2)
 ├── tests/                # pruebas con pytest
