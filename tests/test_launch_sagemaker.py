@@ -22,7 +22,7 @@ def test_defaults_are_final_model():
     hp = {k: json.loads(v) for k, v in req["HyperParameters"].items()}
     assert hp["architecture"] == "tf_efficientnet_b3.ns_jft_in1k"
     assert hp["image-size"] == 512 and hp["epochs"] == 20 and hp["batch-size"] == 32
-    assert hp["weight-decay"] == 0.05 and hp["label-smoothing"] == 0.1 and hp["min-sensitivity"] == 0.95
+    assert hp["weight-decay"] == 1e-4 and hp["label-smoothing"] == 0.0 and hp["min-sensitivity"] == 0.95
     assert hp["sagemaker_program"] == "src/training/train.py"
     assert req["ResourceConfig"]["InstanceType"] == "ml.g5.xlarge"
     assert req["EnableManagedSpotTraining"] is True

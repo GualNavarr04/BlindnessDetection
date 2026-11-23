@@ -76,9 +76,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     g.add_argument("--epochs", type=int, default=20)
     g.add_argument("--batch-size", type=int, default=32)
     g.add_argument("--lr", type=float, default=3e-4)
-    # Contra el sobreajuste del primer entrenamiento (train_loss 0.02 contra val_loss 1.39)
-    g.add_argument("--weight-decay", type=float, default=0.05)
-    g.add_argument("--label-smoothing", type=float, default=0.1)
+    # Los del modelo en producción (2026-11-23-effb3-162536). Se probó weight decay 0.05 con label
+    # smoothing 0.1 (2026-11-23-effb3-172449) y salió peor: 40 % de casos a revisión humana.
+    g.add_argument("--weight-decay", type=float, default=1e-4)
+    g.add_argument("--label-smoothing", type=float, default=0.0)
     g.add_argument("--min-sensitivity", type=float, default=0.95, help="Meta de sensibilidad al escoger el umbral")
     g.add_argument("--subset", type=int, default=0, help="N fotos de entrenamiento (0 = todas)")
     g.add_argument("--seed", type=int, default=42)
