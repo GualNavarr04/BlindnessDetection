@@ -1,6 +1,6 @@
 # Plan de trabajo
 
-Estado al 19 de noviembre de 2026. Este documento dice qué ya está hecho, dónde y cómo vamos a
+Estado al 22 de noviembre de 2026. Este documento dice qué ya está hecho, dónde y cómo vamos a
 trabajar, qué falta y quién hace qué. Los dos trabajamos en las dos partes del proyecto (datos y
 entrenamiento, y servicio y monitoreo). Para no esperarnos, cada pieza que conecta el trabajo de
 uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al principio.
@@ -180,7 +180,7 @@ def to_tensor(img: np.ndarray, size: int = IMAGE_SIZE) -> torch.Tensor:  # (3, s
 
 Lo usan el entrenamiento y la API, para que el modelo vea las fotos igual en los dos lados.
 **La API debe usar el tamaño del modelo, no el 384 por defecto:** `to_tensor(img, metadata["image_size"])`,
-porque vamos a comparar un modelo a 384 y otro a 512 (sección 5, "Entrenamientos").
+porque el modelo final se entrena a 512 (sección 5, "Modelo final").
 Los aumentos de datos (rotaciones, brillo) **no** van aquí: solo los usa `train.py`.
 
 ### 4.3 Artefactos del modelo — `models/<run_id>/`
@@ -191,11 +191,11 @@ Los aumentos de datos (rotaciones, brillo) **no** van aquí: solo los usa `train
 
 ```json
 {
-  "run_id": "2026-11-20-effb0-001",
-  "created_at": "2026-11-20T18:00:00Z",
-  "architecture": "efficientnet_b0",
+  "run_id": "2026-11-23-effb3-001",
+  "created_at": "2026-11-23T18:00:00Z",
+  "architecture": "tf_efficientnet_b3.ns_jft_in1k",
   "num_classes": 5,
-  "image_size": 384,
+  "image_size": 512,
   "normalization": {"mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225]},
   "decision": {
     "referable_threshold": 0.5,
@@ -251,8 +251,8 @@ Mientras no existe, `train.py` puede calcular solo el kappa con `sklearn` y deja
 SageMaker le pasa los hiperparámetros como argumentos de línea de comandos:
 
 ```bash
-python train.py --architecture efficientnet_b0 --image-size 384 --epochs 15 \
-                --batch-size 32 --lr 3e-4 --subset 0 --run-id 2026-11-20-effb0-001
+python train.py --architecture tf_efficientnet_b3.ns_jft_in1k --image-size 512 --epochs 20 \
+                --batch-size 32 --lr 3e-4 --subset 0 --run-id 2026-11-23-effb3-001
 ```
 
 - `--subset N`: usar solo N imágenes de entrenamiento y N/4 de validación y prueba (0 = todas).
@@ -263,7 +263,7 @@ python train.py --architecture efficientnet_b0 --image-size 384 --epochs 15 \
 - Datos: canal `cache` (fotos ya recortadas, `<size>/<id_code>.png`) o canal `train` (originales,
   `train_images/`). Sin ninguno, baja de Kaggle las fotos que falten. **Lo que usamos:** el canal
   `cache` apuntando a `s3://<bucket>/data/aptos-cache/`, que tiene `384/` y `512/`; `train.py` toma
-  la carpeta del `--image-size` que reciba. Con el caché completo no hace falta el token de Kaggle.
+  la carpeta del `--image-size` que reciba (el modelo final usa `512/`). Con el caché completo no hace falta el token de Kaggle.
 - Guarda checkpoints en `/opt/ml/checkpoints` (para Spot) y al reiniciar sigue de la última época.
 - Imprime cada época en este formato, para que `metric_definitions` lo lea:
   `epoch=3 train_loss=0.512 val_loss=0.601 val_qwk=0.812`. Al final: `test_qwk=… test_sensitivity=…
@@ -351,7 +351,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 | 3 | Datos | `notebooks/eda.ipynb` | Distribución de clases, duplicados (`imagehash`), recorte de retina y ejemplos de fotos borrosas y oscuras |
 | 4 | Datos | `src/data/make_splits.py` | Quita duplicados (incluidos los de etiquetas distintas) y hace el split estratificado 70/15/15 con semilla fija. Sube `data/splits.csv` (`id_code,diagnosis,split`) al repo |
 | 5 | Servicio | `src/common/quality_filter.py` | Contrato 4.8. Los umbrales salen de `notebooks/quality.ipynb` ✅ |
-| 6 | Entrenamiento | `src/training/train.py` | Contrato 4.7. EfficientNet-B0 (`timm`), pesos por clase, checkpoints, `model.pth` + `metadata.json` a `models/<run_id>/` (contrato 4.3). Usa `metrics.py` de Eduardo. Probar en Studio con `--subset 64 --epochs 1` ✅ |
+| 6 | Entrenamiento | `src/training/train.py` | Contrato 4.7. Cualquier modelo de `timm` con `--architecture` (el final es EfficientNet-B3), pesos por clase, checkpoints, `model.pth` + `metadata.json` a `models/<run_id>/` (contrato 4.3). Usa `metrics.py` de Eduardo. Probar en Studio con `--subset 64 --epochs 1` ✅ |
 | 7 | Entrenamiento | `src/training/requirements.txt` | Solo lo que no trae el contenedor de PyTorch: `timm`, `opencv-python-headless`, `pandas`, `scikit-learn` ✅ |
 | 8 | Servicio | Página web (`src/api/static/`) | Subir la foto y mostrar semáforo, recomendación, probabilidades y mapa de calor. Se construye contra el contrato 4.9 con respuestas falsas. ✅ Prototipo en `src/api/static/index.html` (ver 4.9) |
 | 9 | Ambos | Pruebas | `tests/` para `preprocess.py`, `make_splits.py` y `quality_filter.py` |
@@ -362,7 +362,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 |---|---|---|---|
 | 1 | Datos | `src/data/metrics.py` | Contrato 4.6. Funciones puras, no necesita datos reales para empezar |
 | 2 | Servicio | `scripts/make_dummy_model.py` | `model.pth` + `metadata.json` de prueba que cumplen el contrato 4.3 (EfficientNet-B0 con pesos de ImageNet, umbrales inventados). Sirve también de `train.py` falso para probar el lanzamiento |
-| 3 | Entrenamiento | `src/training/launch_sagemaker.py` | PyTorch con Python 3.11, `ml.g4dn.xlarge` Spot, `max_run`/`max_wait`, `checkpoint_s3_uri`, `metric_definitions` (contrato 4.7), variables `KAGGLE_TOKEN_PARAM` y `S3_BUCKET_MODELS`, canal `cache` = `s3://<bucket>/data/aptos-cache/` (ver 4.7). Probarlo primero con el modelo de prueba (#2) |
+| 3 | Entrenamiento | `src/training/launch_sagemaker.py` | PyTorch con Python 3.11, `ml.g5.xlarge` Spot (24 GB: la B3 a 512 cabe con batch 32), `max_run` de 1 hora y `max_wait` de 2, `checkpoint_s3_uri`, `metric_definitions` (contrato 4.7), variables `KAGGLE_TOKEN_PARAM` y `S3_BUCKET_MODELS`, canal `cache` = `s3://<bucket>/data/aptos-cache/` (ver 4.7). Probarlo primero con el modelo de prueba (#2) |
 | 4 | Servicio | `src/common/gradcam.py` | Grad-CAM sobre la última capa convolucional; funciona con cualquier modelo de `timm` |
 | 5 | Servicio | `src/api/` | FastAPI con `POST /predict` (contrato 4.9) y `GET /health`: calidad → modelo → semáforo/baja confianza → Grad-CAM. Carga `models/current/` al arrancar y sirve la página web de Kevin |
 | 6 | Servicio | Registro y métricas | Predicción a S3 (contrato 4.4) y métricas al namespace `BlindnessDetection`: predicciones, latencia, errores, rechazos por calidad, conteo por clase |
@@ -375,7 +375,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 |---|---|
 | Acordar los contratos | Sección 4, antes de empezar |
 | Entrenamientos | Corrida corta (`--subset 64 --epochs 1`), corrida completa, revisar métricas y umbrales, promover con `promote_model.py`. Kevin ajusta el modelo, Eduardo lanza y revisa en CloudWatch |
-| Comparación de modelos | **A:** EfficientNet-B0 a 384 px. **B:** EfficientNet-B0 a 512 px. Todo lo demás igual (división, semilla, épocas, lr, batch). La pregunta: ¿más resolución ayuda a ver los microaneurismas de la clase leve? Se elige con validación (kappa y sensibilidad de referibles) y se reporta en prueba, junto con el error por clase y por cámara (de `predictions.csv`). Si a 512 no cabe batch 32 en la GPU, se baja a 16 en **los dos** |
+| Modelo final | **Un solo entrenamiento, sin comparar modelos** (decidido el 22 de noviembre). EfficientNet-B3 con pesos Noisy Student (`tf_efficientnet_b3.ns_jft_in1k`) a 512 px, 20 épocas, batch 32, lr 3e-4, entropía cruzada con pesos por clase, en `ml.g5.xlarge` Spot (~25–35 min, menos de $0.30). **Por qué:** las mejores soluciones de APTOS 2019 usaron EfficientNet de B3 a B5 a 380–512 px; la B3 tiene más capacidad que la B0 para lesiones pequeñas (microaneurismas de la clase leve) sin sobreajustar tanto con ~2,400 fotos, y sigue respondiendo en menos de un segundo en la CPU de la EC2. Se queda la entropía cruzada porque la API necesita la probabilidad de cada grado (contrato 4.9). Se reporta en prueba, con el error por clase y por cámara (de `predictions.csv`). Si la B3 no cabe con batch 32, se baja a 16 |
 | Prueba de punta a punta | Con el modelo real en `models/current/`, primero en Studio y luego en EC2 |
 
 En Studio, la API se puede probar con `TestClient` (sin levantar servidor) o con `uvicorn` en
