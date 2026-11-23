@@ -252,7 +252,8 @@ SageMaker le pasa los hiperparámetros como argumentos de línea de comandos:
 
 ```bash
 python train.py --architecture tf_efficientnet_b3.ns_jft_in1k --image-size 512 --epochs 20 \
-                --batch-size 32 --lr 3e-4 --subset 0 --run-id 2026-11-23-effb3-001
+                --batch-size 32 --lr 3e-4 --weight-decay 0.05 --label-smoothing 0.1 \
+                --min-sensitivity 0.95 --subset 0 --run-id 2026-11-23-effb3-001
 ```
 
 - `--subset N`: usar solo N imágenes de entrenamiento y N/4 de validación y prueba (0 = todas).
@@ -375,7 +376,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 |---|---|
 | Acordar los contratos | Sección 4, antes de empezar |
 | Entrenamientos | Corrida corta (`--subset 64 --epochs 1`), corrida completa, revisar métricas y umbrales, promover con `promote_model.py`. Kevin ajusta el modelo, Eduardo lanza y revisa en CloudWatch |
-| Modelo final | **Un solo entrenamiento, sin comparar modelos** (decidido el 22 de noviembre). EfficientNet-B3 con pesos Noisy Student (`tf_efficientnet_b3.ns_jft_in1k`) a 512 px, 20 épocas, batch 32, lr 3e-4, entropía cruzada con pesos por clase, en `ml.g5.xlarge` Spot (~25–35 min, menos de $0.30). **Por qué:** las mejores soluciones de APTOS 2019 usaron EfficientNet de B3 a B5 a 380–512 px; la B3 tiene más capacidad que la B0 para lesiones pequeñas (microaneurismas de la clase leve) sin sobreajustar tanto con ~2,400 fotos, y sigue respondiendo en menos de un segundo en la CPU de la EC2. Se queda la entropía cruzada porque la API necesita la probabilidad de cada grado (contrato 4.9). Se reporta en prueba, con el error por clase y por cámara (de `predictions.csv`). Si la B3 no cabe con batch 32, se baja a 16 |
+| Modelo final | **Un solo entrenamiento, sin comparar modelos** (decidido el 22 de noviembre). EfficientNet-B3 con pesos Noisy Student (`tf_efficientnet_b3.ns_jft_in1k`) a 512 px, 20 épocas, batch 32, lr 3e-4, entropía cruzada con pesos por clase, en `ml.g5.xlarge` Spot (~25–35 min, menos de $0.30). **Por qué:** las mejores soluciones de APTOS 2019 usaron EfficientNet de B3 a B5 a 380–512 px; la B3 tiene más capacidad que la B0 para lesiones pequeñas (microaneurismas de la clase leve) sin sobreajustar tanto con ~2,400 fotos, y sigue respondiendo en menos de un segundo en la CPU de la EC2. Se queda la entropía cruzada porque la API necesita la probabilidad de cada grado (contrato 4.9). Se reporta en prueba, con el error por clase y por cámara (de `predictions.csv`). Si la B3 no cabe con batch 32, se baja a 16. **Primer entrenamiento (23 nov, `2026-11-23-effb3-162536`):** kappa 0.914 en prueba, accuracy 83.8 %, pero sensibilidad de referibles de solo 0.866 y sobreajuste (`train_loss` 0.02 contra `val_loss` 1.39). **Ajustes:** (1) el umbral de referible se escoge en validación con `min_sensitivity` 0.95 en lugar de 0.90 (`src/training/rethreshold.py` lo aplica a un modelo ya entrenado; en prueba sube la sensibilidad a 0.931 y la especificidad baja solo de 0.962 a 0.950); (2) `train.py --min-sensitivity` (0.95 por defecto); (3) reentrenar con `--weight-decay 0.05` (antes 1e-4) y `--label-smoothing 0.1`, que ya son los valores por defecto de `launch_sagemaker.py`. Se queda el que tenga mejor kappa en validación |
 | Prueba de punta a punta | Con el modelo real en `models/current/`, primero en Studio y luego en EC2 |
 
 En Studio, la API se puede probar con `TestClient` (sin levantar servidor) o con `uvicorn` en

@@ -4,8 +4,8 @@ Corre igual en SageMaker Studio (para probar) y como trabajo de entrenamiento de
 
     python -m src.training.train --subset 64 --epochs 1 --upload 0     # prueba rápida en Studio
     python -m src.training.train --image-size 512 --cache-only 1            # solo preparar el caché a 512
-    python src/training/train.py --architecture efficientnet_b0 --image-size 384 --epochs 15 \\
-        --batch-size 32 --lr 3e-4 --run-id 2026-11-20-effb0-001          # lo que lanza SageMaker
+    python src/training/train.py --architecture tf_efficientnet_b3.ns_jft_in1k --image-size 512 \\
+        --epochs 20 --weight-decay 0.05 --label-smoothing 0.1 --run-id …  # lo que lanza SageMaker
 
 Pasos:
 1. Lee data/splits.csv (train / val / test, ya sin duplicados).
@@ -17,7 +17,8 @@ Pasos:
 3. Entrena con pesos por clase y aumentos de datos (solo en entrenamiento). Cada época imprime
    `epoch=3 train_loss=0.512 val_loss=0.601 val_qwk=0.812` (lo lee SageMaker) y guarda un
    checkpoint en --checkpoint-dir: si la instancia Spot se interrumpe, al reiniciar sigue de ahí.
-4. Con la mejor época (mayor kappa en validación) elige los umbrales en validación y mide en prueba.
+4. Con la mejor época (mayor kappa en validación) elige los umbrales en validación (el de referible,
+   con al menos --min-sensitivity de sensibilidad) y mide en prueba.
 5. Escribe model.pth, metadata.json y predictions.csv en --output-dir y los sube a
    s3://<S3_BUCKET_MODELS>/models/<run_id>/.
 
@@ -59,7 +60,8 @@ except ImportError:
     pass
 
 from src.common.preprocess import IMAGE_SIZE, MEAN, STD, crop_retina, load_image, to_tensor  # noqa: E402
-from src.data.metrics import choose_thresholds, compute_metrics  # noqa: E402
+from src.data.metrics import compute_metrics  # noqa: E402
+from src.training.rethreshold import DEFAULT_MIN_SENSITIVITY, evaluate  # noqa: E402
 
 NUM_CLASSES = 5
 TRAFFIC_LIGHT = {"verde": [0, 1], "amarillo": [2], "rojo": [3, 4]}
@@ -77,6 +79,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--weight-decay", type=float, default=1e-4)
+    p.add_argument("--label-smoothing", type=float, default=0.0, help="Suavizado de etiquetas (0 = sin suavizar)")
+    p.add_argument("--min-sensitivity", type=float, default=DEFAULT_MIN_SENSITIVITY,
+                   help="Sensibilidad de referibles mínima al escoger el umbral en validación")
     p.add_argument("--subset", type=int, default=0, help="Usar solo N fotos de entrenamiento (0 = todas)")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--run-id", default=None, help="Carpeta models/<run_id>/ (por defecto: fecha-arquitectura-hora)")
@@ -295,7 +300,7 @@ def main(argv: list[str] | None = None) -> dict:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = timm.create_model(args.architecture, pretrained=bool(args.pretrained), num_classes=NUM_CLASSES).to(device)
     weights = class_weights(parts["train"].diagnosis)
-    criterion = nn.CrossEntropyLoss(weight=weights.to(device))
+    criterion = nn.CrossEntropyLoss(weight=weights.to(device), label_smoothing=args.label_smoothing)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, pct_start=0.1,
                                                     total_steps=max(1, args.epochs * len(train_loader)))
@@ -335,14 +340,14 @@ def main(argv: list[str] | None = None) -> dict:
     model.load_state_dict(torch.load(best_ckpt, map_location=device, weights_only=True))
     _, val_probs, val_labels = run_epoch(model, val_loader, criterion, device)
     _, test_probs, test_labels = run_epoch(model, test_loader, criterion, device)
-    thresholds = choose_thresholds(val_labels, val_probs)
-    val_metrics = compute_metrics(val_labels, val_probs, thresholds["referable_threshold"])
-    test_metrics = compute_metrics(test_labels, test_probs, thresholds["referable_threshold"])
-    thresholds = {k: round(float(v), 4) for k, v in thresholds.items()}
+    # Umbrales escogidos en validación (con --min-sensitivity) y métricas en prueba
+    result = evaluate(val_labels, val_probs, test_labels, test_probs, args.min_sensitivity)
+    thresholds, test_metrics = result["thresholds"], result["metrics"]
     print(f"[resultado] mejor época {best_epoch} · umbral de referible {thresholds['referable_threshold']} · "
           f"umbral de confianza {thresholds['confidence_threshold']}", flush=True)
     print(f"test_qwk={test_metrics['qwk']:.4f} test_sensitivity={test_metrics['sensitivity_referable']:.4f} "
-          f"test_specificity={test_metrics['specificity_referable']:.4f}", flush=True)
+          f"test_specificity={test_metrics['specificity_referable']:.4f} test_accuracy={test_metrics['accuracy']:.4f}",
+          flush=True)
 
     # --- artefactos (contrato 4.3)
     torch.save({k: v.cpu() for k, v in model.state_dict().items()}, output_dir / "model.pth")
@@ -367,13 +372,13 @@ def main(argv: list[str] | None = None) -> dict:
             "traffic_light": TRAFFIC_LIGHT,
         },
         # Métricas en PRUEBA, con los umbrales elegidos en validación
-        "metrics": {**{k: test_metrics[k] for k in ("qwk", "sensitivity_referable", "specificity_referable")},
-                    "confusion_matrix": test_metrics["confusion_matrix"], "n": int(len(test_labels))},
-        "validation_metrics": {**{k: val_metrics[k] for k in ("qwk", "sensitivity_referable", "specificity_referable")},
-                               "n": int(len(val_labels))},
+        "metrics": test_metrics,
+        "validation_metrics": result["validation_metrics"],
+        "threshold_selection": result["threshold_selection"],
         "training": {
             "epochs": args.epochs, "best_epoch": best_epoch, "batch_size": args.batch_size, "lr": args.lr,
-            "weight_decay": args.weight_decay, "subset": args.subset, "seed": args.seed,
+            "weight_decay": args.weight_decay, "label_smoothing": args.label_smoothing,
+            "subset": args.subset, "seed": args.seed,
             "pretrained": bool(args.pretrained), "class_weights": [round(float(w), 4) for w in weights],
             "n_train": int(len(parts["train"])), "device": str(device),
             "duration_s": round(time.time() - started),

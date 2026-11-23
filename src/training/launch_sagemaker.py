@@ -76,6 +76,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     g.add_argument("--epochs", type=int, default=20)
     g.add_argument("--batch-size", type=int, default=32)
     g.add_argument("--lr", type=float, default=3e-4)
+    # Contra el sobreajuste del primer entrenamiento (train_loss 0.02 contra val_loss 1.39)
+    g.add_argument("--weight-decay", type=float, default=0.05)
+    g.add_argument("--label-smoothing", type=float, default=0.1)
+    g.add_argument("--min-sensitivity", type=float, default=0.95, help="Meta de sensibilidad al escoger el umbral")
     g.add_argument("--subset", type=int, default=0, help="N fotos de entrenamiento (0 = todas)")
     g.add_argument("--seed", type=int, default=42)
     g.add_argument("--run-id", default=None, help="Carpeta models/<run_id>/ (por defecto: fecha-modelo-hora)")
@@ -136,7 +140,8 @@ def source_files(root: Path = ROOT) -> dict[str, Path]:
     files: dict[str, Path] = {}
     for path in sorted((root / "src").rglob("*.py")):
         rel = path.relative_to(root)
-        if "__pycache__" in rel.parts or rel.parts[:2] == ("src", "api"):
+        # .ipynb_checkpoints: copias que Jupyter deja en Studio
+        if {"__pycache__", ".ipynb_checkpoints"} & set(rel.parts) or rel.parts[:2] == ("src", "api"):
             continue
         files[rel.as_posix()] = path
     files["data/splits.csv"] = root / "data" / "splits.csv"
@@ -184,6 +189,9 @@ def build_request(args: argparse.Namespace, *, job_name: str, default_bucket: st
         "epochs": args.epochs,
         "batch-size": args.batch_size,
         "lr": args.lr,
+        "weight-decay": args.weight_decay,
+        "label-smoothing": args.label_smoothing,
+        "min-sensitivity": args.min_sensitivity,
         "subset": args.subset,
         "seed": args.seed,
         "run-id": args.run_id,

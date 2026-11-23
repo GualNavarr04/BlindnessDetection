@@ -22,6 +22,7 @@ def test_defaults_are_final_model():
     hp = {k: json.loads(v) for k, v in req["HyperParameters"].items()}
     assert hp["architecture"] == "tf_efficientnet_b3.ns_jft_in1k"
     assert hp["image-size"] == 512 and hp["epochs"] == 20 and hp["batch-size"] == 32
+    assert hp["weight-decay"] == 0.05 and hp["label-smoothing"] == 0.1 and hp["min-sensitivity"] == 0.95
     assert hp["sagemaker_program"] == "src/training/train.py"
     assert req["ResourceConfig"]["InstanceType"] == "ml.g5.xlarge"
     assert req["EnableManagedSpotTraining"] is True
@@ -73,6 +74,15 @@ def test_tarball_has_code_splits_and_training_requirements():
     with tarfile.open(fileobj=io.BytesIO(ls.build_tarball(files)), mode="r:gz") as tar:
         req = tar.extractfile("requirements.txt").read().decode()
     assert "timm" in req and "fastapi" not in req.lower()
+
+
+def test_hyperparameters_exist_in_train_py():
+    """Cada hiperparámetro que manda el lanzador debe existir en train.py (si no, argparse falla en SageMaker)."""
+    _, req = request_for([])
+    train_src = (ls.ROOT / "src" / "training" / "train.py").read_text(encoding="utf-8")
+    for name in req["HyperParameters"]:
+        if not name.startswith("sagemaker_"):
+            assert f'"--{name}"' in train_src, name
 
 
 def test_max_wait_must_cover_max_run():
