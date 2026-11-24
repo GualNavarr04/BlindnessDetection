@@ -19,6 +19,7 @@ import numpy as np
 import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from src.api import monitoring
 from src.api.model import ModelBundle, load_current_model
@@ -34,6 +35,7 @@ RECOMMENDATION = {
 }
 LOW_CONFIDENCE_RECOMMENDATION = "Revisión humana"
 REFERABLE_CLASS = 2
+HEATMAP_OUTPUT_SIZE = 512
 
 
 def _traffic_light(probs: np.ndarray, decision: dict) -> str:
@@ -52,6 +54,74 @@ def _encode_png(img: np.ndarray) -> str:
     return base64.b64encode(png.tobytes()).decode("ascii")
 
 
+def _resize_for_output(img: np.ndarray, size: int = HEATMAP_OUTPUT_SIZE) -> np.ndarray:
+    """Reduce el mapa de calor a lo sumo `size` px de lado (no agranda fotos chicas)."""
+    if max(img.shape[:2]) <= size:
+        return img
+    return cv2.resize(img, (size, size), interpolation=cv2.INTER_AREA)
+
+
+def _analyze(bundle: ModelBundle, data: bytes) -> dict:
+    """Todo el trabajo pesado (CPU): calidad -> modelo -> semáforo/baja confianza -> Grad-CAM.
+
+    Es una función normal (no async) para poder correrla en threadpool y no bloquear el event
+    loop mientras el modelo procesa una foto (contrato 4.9, servicio de EC2)."""
+    run_id = bundle.metadata["run_id"]
+    try:
+        img = load_image(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    quality = check_quality(img)
+    if not quality.ok:
+        return {
+            "quality_ok": False,
+            "quality_reason": quality.reason,
+            "predicted_class": None,
+            "class_name": None,
+            "probabilities": None,
+            "traffic_light": None,
+            "recommendation": None,
+            "low_confidence": None,
+            "heatmap_png_base64": None,
+            "run_id": run_id,
+        }
+
+    cropped = crop_retina(img)
+    tensor = to_tensor(cropped, bundle.metadata["image_size"])
+
+    with torch.no_grad():
+        logits = bundle.model(tensor.unsqueeze(0))
+        probs = torch.softmax(logits, dim=1)[0].numpy()
+
+    predicted_class = int(probs.argmax())
+    confidence = float(probs.max())
+    decision = bundle.metadata["decision"]
+    low_confidence = confidence < decision["confidence_threshold"]
+
+    if low_confidence:
+        traffic_light = None
+        recommendation = LOW_CONFIDENCE_RECOMMENDATION
+    else:
+        traffic_light = _traffic_light(probs, decision)
+        recommendation = RECOMMENDATION[traffic_light]
+
+    heatmap = _resize_for_output(generate_heatmap(bundle.model, tensor, predicted_class, cropped))
+
+    return {
+        "quality_ok": True,
+        "quality_reason": None,
+        "predicted_class": predicted_class,
+        "class_name": CLASS_NAMES[predicted_class],
+        "probabilities": [round(float(p), 5) for p in probs],
+        "traffic_light": traffic_light,
+        "recommendation": recommendation,
+        "low_confidence": low_confidence,
+        "heatmap_png_base64": _encode_png(heatmap),
+        "run_id": run_id,
+    }
+
+
 def create_app(bundle: ModelBundle | None = None) -> FastAPI:
     """bundle=None carga el modelo real de S3 (producción); en pruebas se inyecta uno falso."""
     bundle = bundle or load_current_model()
@@ -66,62 +136,10 @@ def create_app(bundle: ModelBundle | None = None) -> FastAPI:
         started = time.perf_counter()
         data = await file.read()
         try:
-            img = load_image(data)
-        except ValueError as exc:
+            response = await run_in_threadpool(_analyze, bundle, data)
+        except HTTPException:
             monitoring.record_error()
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        run_id = bundle.metadata["run_id"]
-        quality = check_quality(img)
-        if not quality.ok:
-            response = {
-                "quality_ok": False,
-                "quality_reason": quality.reason,
-                "predicted_class": None,
-                "class_name": None,
-                "probabilities": None,
-                "traffic_light": None,
-                "recommendation": None,
-                "low_confidence": None,
-                "heatmap_png_base64": None,
-                "run_id": run_id,
-            }
-            monitoring.record_prediction(response, (time.perf_counter() - started) * 1000)
-            return response
-
-        cropped = crop_retina(img)
-        tensor = to_tensor(cropped, bundle.metadata["image_size"])
-
-        with torch.no_grad():
-            logits = bundle.model(tensor.unsqueeze(0))
-            probs = torch.softmax(logits, dim=1)[0].numpy()
-
-        predicted_class = int(probs.argmax())
-        confidence = float(probs.max())
-        decision = bundle.metadata["decision"]
-        low_confidence = confidence < decision["confidence_threshold"]
-
-        if low_confidence:
-            traffic_light = None
-            recommendation = LOW_CONFIDENCE_RECOMMENDATION
-        else:
-            traffic_light = _traffic_light(probs, decision)
-            recommendation = RECOMMENDATION[traffic_light]
-
-        heatmap = generate_heatmap(bundle.model, tensor, predicted_class, cropped)
-
-        response = {
-            "quality_ok": True,
-            "quality_reason": None,
-            "predicted_class": predicted_class,
-            "class_name": CLASS_NAMES[predicted_class],
-            "probabilities": [round(float(p), 5) for p in probs],
-            "traffic_light": traffic_light,
-            "recommendation": recommendation,
-            "low_confidence": low_confidence,
-            "heatmap_png_base64": _encode_png(heatmap),
-            "run_id": run_id,
-        }
+            raise
         monitoring.record_prediction(response, (time.perf_counter() - started) * 1000)
         return response
 

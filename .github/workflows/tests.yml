@@ -15,5 +15,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - name: Instalar PyTorch (CPU; el runner no tiene GPU y el wheel con CUDA tarda mucho más)
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -r requirements.txt
       - run: pytest
