@@ -1,6 +1,6 @@
 # Plan de trabajo
 
-Estado al 22 de noviembre de 2026. Este documento dice qué ya está hecho, dónde y cómo vamos a
+Estado al 24 de noviembre de 2026. Este documento dice qué ya está hecho, dónde y cómo vamos a
 trabajar, qué falta y quién hace qué. Los dos trabajamos en las dos partes del proyecto (datos y
 entrenamiento, y servicio y monitoreo). Para no esperarnos, cada pieza que conecta el trabajo de
 uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al principio.
@@ -26,6 +26,15 @@ uno con el del otro tiene un **contrato** (sección 4) que se acuerda una vez al
   --epochs 1`, 37 s por época en CPU). En Studio hay solo 3.7 GB de RAM: con batch 32 se queda sin
   memoria, así que ahí se prueba con `--batch-size 4 --workers 0` y con los kernels de los notebooks
   apagados. En SageMaker (16 GB + GPU) se usa batch 32.
+- [x] `src/api/` (contrato 4.9): FastAPI con `POST /predict` (calidad → modelo → semáforo o baja
+  confianza → Grad-CAM) y `GET /health`; carga `models/current/` de S3 al arrancar y sirve la página
+  web en `/`. Se levanta con `uvicorn src.api.main:create_app --factory`.
+- [x] `src/common/gradcam.py`: Grad-CAM sobre la última `Conv2d` de cualquier modelo de `timm`.
+- [x] `src/api/monitoring.py`: registro de cada predicción en S3 (contrato 4.4) y métricas al namespace
+  `BlindnessDetection` (`Predictions`, `Latency`, `Errors`, `QualityRejections`, `ClassDistribution`,
+  `LowConfidence`). Si S3 o CloudWatch fallan, la API sigue respondiendo.
+- [x] 22 pruebas más (API con un modelo falso inyectado, Grad-CAM y métricas) y GitHub Actions
+  (`.github/workflows/tests.yml`) que corre `pytest` en cada push y pull request a `main`.
 
 ### Datos
 - [x] Dataset completo en Studio (`/home/sagemaker-user/data/aptos`, 3,662 imágenes). La descarga imagen
@@ -361,14 +370,31 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 
 | # | Parte | Entregable | Detalle |
 |---|---|---|---|
-| 1 | Datos | `src/data/metrics.py` | Contrato 4.6. Funciones puras, no necesita datos reales para empezar |
-| 2 | Servicio | `scripts/make_dummy_model.py` | `model.pth` + `metadata.json` de prueba que cumplen el contrato 4.3 (EfficientNet-B0 con pesos de ImageNet, umbrales inventados). Sirve también de `train.py` falso para probar el lanzamiento |
-| 3 | Entrenamiento | `src/training/launch_sagemaker.py` | PyTorch con Python 3.11, `ml.g5.xlarge` Spot (24 GB: la B3 a 512 cabe con batch 32), `max_run` de 1 hora y `max_wait` de 2, `checkpoint_s3_uri`, `metric_definitions` (contrato 4.7), variables `KAGGLE_TOKEN_PARAM` y `S3_BUCKET_MODELS`, canal `cache` = `s3://<bucket>/data/aptos-cache/` (ver 4.7). Probarlo primero con el modelo de prueba (#2) |
-| 4 | Servicio | `src/common/gradcam.py` | Grad-CAM sobre la última capa convolucional; funciona con cualquier modelo de `timm` |
-| 5 | Servicio | `src/api/` | FastAPI con `POST /predict` (contrato 4.9) y `GET /health`: calidad → modelo → semáforo/baja confianza → Grad-CAM. Carga `models/current/` al arrancar y sirve la página web de Kevin |
-| 6 | Servicio | Registro y métricas | Predicción a S3 (contrato 4.4) y métricas al namespace `BlindnessDetection`: predicciones, latencia, errores, rechazos por calidad, conteo por clase |
-| 7 | Ambos | Pruebas y CI | `tests/` para `metrics.py` y la API (`TestClient` con el modelo de prueba); GitHub Actions corre `pytest` en cada push |
-| 8 | Servicio | **Al final:** EC2 y CloudWatch | Lanzar la EC2 con el perfil `BlindnessDetection-EC2Role`, security group solo con el puerto de la API, alarma de distribución y dashboard |
+| 1 | Datos | `src/data/metrics.py` | Contrato 4.6. Funciones puras, no necesita datos reales para empezar ✅ |
+| 2 | Servicio | `scripts/make_dummy_model.py` | `model.pth` + `metadata.json` de prueba que cumplen el contrato 4.3 (EfficientNet-B0 con pesos de ImageNet, umbrales inventados). Sirve también de `train.py` falso para probar el lanzamiento. No se hizo: las pruebas de la API arman el modelo falso dentro de `tests/test_api.py` y el lanzador se probó directamente con `train.py` |
+| 3 | Entrenamiento | `src/training/launch_sagemaker.py` | PyTorch con Python 3.11, `ml.g5.xlarge` Spot (24 GB: la B3 a 512 cabe con batch 32), `max_run` de 1 hora y `max_wait` de 2, `checkpoint_s3_uri`, `metric_definitions` (contrato 4.7), variables `KAGGLE_TOKEN_PARAM` y `S3_BUCKET_MODELS`, canal `cache` = `s3://<bucket>/data/aptos-cache/` (ver 4.7). ✅ Lo hizo Kevin (22 nov) |
+| 4 | Servicio | `src/common/gradcam.py` | Grad-CAM sobre la última capa convolucional; funciona con cualquier modelo de `timm` ✅ |
+| 5 | Servicio | `src/api/` | FastAPI con `POST /predict` (contrato 4.9) y `GET /health`: calidad → modelo → semáforo/baja confianza → Grad-CAM. Carga `models/current/` al arrancar y sirve la página web de Kevin ✅ |
+| 6 | Servicio | Registro y métricas | Predicción a S3 (contrato 4.4) y métricas al namespace `BlindnessDetection`: predicciones, latencia, errores, rechazos por calidad, conteo por clase ✅ |
+| 7 | Ambos | Pruebas y CI | `tests/` para `metrics.py` y la API (`TestClient` con el modelo de prueba); GitHub Actions corre `pytest` en cada push ✅ |
+| 8 | Servicio | **Al final:** EC2 y CloudWatch | Lanzar la EC2 con el perfil `BlindnessDetection-EC2Role`, security group solo con el puerto de la API, alarma de distribución y dashboard. **Pendiente** (ver abajo) |
+
+**Lo que falta del servicio (24 nov):**
+
+- **Despliegue en EC2:** script o instrucciones para instalar dependencias, poner las variables de
+  entorno (la API no lee `.env`, así que van en el servicio de systemd) y dejar corriendo
+  `uvicorn src.api.main:create_app --factory`. Security group solo con el puerto de la API.
+- **Permisos del rol de EC2:** confirmar que `BlindnessDetection-EC2Role` puede hacer
+  `cloudwatch:PutMetricData` en `BlindnessDetection`. Si no, la API no falla pero las métricas no
+  llegan y no se nota.
+- **CloudWatch:** alarma de distribución de clases, dashboard y agente de CloudWatch en la EC2 para
+  mandar los logs de la app a `/blindness-detection/api`.
+- **Prueba de punta a punta con el modelo real**, primero en Studio y luego en EC2.
+- **Mejoras sugeridas (no bloquean):** reducir el mapa de calor a ~512 px antes de codificarlo (hoy
+  va a la resolución de la foto recortada, que puede pesar varios MB en base64); correr la inferencia
+  fuera del event loop (`/predict` es `async` pero el modelo bloquea); en CI instalar torch desde el
+  índice de CPU para que tarde menos.
+- La EC2 cobra por hora: levantarla cerca de la entrega y apagarla al terminar.
 
 ### Juntos
 
