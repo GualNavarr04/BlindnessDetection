@@ -1,0 +1,21 @@
+[Unit]
+Description=Blindness Detection API
+After=network.target
+
+[Service]
+StandardOutput=append:/var/log/blindness-api.log
+StandardError=append:/var/log/blindness-api.log
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/app
+Environment=AWS_REGION=us-east-1
+Environment=S3_BUCKET_MODELS=blindness-detection-modelos-<account-id>
+Environment=S3_BUCKET_PREDICTIONS=blindness-detection-predicciones-<account-id>
+Environment=CLOUDWATCH_NAMESPACE=BlindnessDetection
+Environment=CLOUDWATCH_LOG_GROUP=/blindness-detection/api
+ExecStart=/home/ec2-user/app/.venv/bin/python -m uvicorn src.api.main:create_app --factory --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
