@@ -94,6 +94,11 @@ forma parte de la arquitectura de producción. Detalles en [plan.md](plan.md).
 - Por la misma razón de memoria, calcular Grad-CAM (un forward + backward sobre la B3 a 512 px)
   puede tronar el proceso con el *OOM killer*. Se agregó un **swapfile de 2 GB** en el disco
   (gratis, en vez de subir el tipo de instancia) para absorber ese pico puntual.
+- **Logs de la app en CloudWatch:** el servicio `systemd` redirige su salida a
+  `/var/log/blindness-api.log` (`StandardOutput`/`StandardError`, en vez de solo `journald`), y el
+  **agente unificado de CloudWatch** (`amazon-cloudwatch-agent`, instalado con `dnf`) lo manda al
+  grupo `/blindness-detection/api`, con el ID de la instancia como nombre del *log stream*. No hizo
+  falta ningún permiso nuevo: el rol ya tenía acceso a ese grupo de logs.
 
 ## Monitoreo en CloudWatch
 
