@@ -78,6 +78,39 @@ Para desarrollar usamos SageMaker Studio con un tercer rol, `BlindnessDetection-
 entrenamientos con `BlindnessDetection-SageMakerRole`). Studio es solo el ambiente de trabajo; no
 forma parte de la arquitectura de producción. Detalles en [plan.md](plan.md).
 
+## Despliegue en EC2
+
+- Instancia `t3.small` (Amazon Linux 2023), perfil de instancia `BlindnessDetection-EC2Role`.
+  `t3.small` porque la cuenta solo permite tipos elegibles para Free Tier.
+- Security group `BlindnessDetection-EC2SG`: solo entrada en el puerto 8000 (la API), sin SSH.
+  Para entrar a la instancia se usa **AWS Systems Manager Session Manager** (`aws ssm
+  start-session`), por lo que el rol también tiene la política administrada
+  `AmazonSSMManagedInstanceCore` además de `BlindnessDetection-EC2Policy`.
+- La API corre como servicio `systemd` (`blindness-api`, `Restart=always`):
+  `uvicorn src.api.main:create_app --factory --host 0.0.0.0 --port 8000`.
+- **`/tmp` es `tmpfs` (RAM) y la instancia solo tiene 2 GB**: instalar `requirements.txt` con pip
+  sin más se queda sin espacio al descargar el wheel de PyTorch (~900 MB). Hay que fijar
+  `TMPDIR` a una carpeta en el disco (EBS, 20 GB) antes de `pip install`.
+- Por la misma razón de memoria, calcular Grad-CAM (un forward + backward sobre la B3 a 512 px)
+  puede tronar el proceso con el *OOM killer*. Se agregó un **swapfile de 2 GB** en el disco
+  (gratis, en vez de subir el tipo de instancia) para absorber ese pico puntual.
+
+## Monitoreo en CloudWatch
+
+- Namespace `BlindnessDetection`: `Predictions`, `Latency`, `Errors`, `QualityRejections`
+  (dimensión `Reason`), `ClassDistribution` (dimensión `Class`) y `LowConfidence` — los publica
+  `src/api/monitoring.py` en cada `/predict`.
+- Dashboard `BlindnessDetection`: conteo de predicciones, latencia, errores, distribución de
+  clases, % de casos referibles por hora, rechazos por calidad y tasa de baja confianza.
+- Alarma `BlindnessDetection-ClassDistributionDrift`: avisa (por SNS, tema
+  `BlindnessDetection-Alerts`, con los dos correos del equipo suscritos) si más del 70% de las
+  fotos analizadas en una hora salen como referibles (clase ≥2) — la idea es detectar si las fotos
+  que llegan ya no se parecen a las del entrenamiento.
+  **Umbral sin calibrar todavía con tráfico real**: con pocas predicciones por hora el porcentaje
+  es puro ruido estadístico (una sola foto ya mueve el número de 0% a 100%), así que mientras solo
+  haya pruebas es normal que dispare sin que signifique un problema real. Revisar/ajustar el
+  umbral (o pedir un mínimo de predicciones por hora para evaluarlo) cuando haya uso real.
+
 ## Versión en texto (Mermaid)
 
 ```mermaid
