@@ -377,24 +377,26 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 | 5 | Servicio | `src/api/` | FastAPI con `POST /predict` (contrato 4.9) y `GET /health`: calidad → modelo → semáforo/baja confianza → Grad-CAM. Carga `models/current/` al arrancar y sirve la página web de Kevin ✅ |
 | 6 | Servicio | Registro y métricas | Predicción a S3 (contrato 4.4) y métricas al namespace `BlindnessDetection`: predicciones, latencia, errores, rechazos por calidad, conteo por clase ✅ |
 | 7 | Ambos | Pruebas y CI | `tests/` para `metrics.py` y la API (`TestClient` con el modelo de prueba); GitHub Actions corre `pytest` en cada push ✅ |
-| 8 | Servicio | **Al final:** EC2 y CloudWatch | Lanzar la EC2 con el perfil `BlindnessDetection-EC2Role`, security group solo con el puerto de la API, alarma de distribución y dashboard. **Pendiente** (ver abajo) |
+| 8 | Servicio | **Al final:** EC2 y CloudWatch | Lanzar la EC2 con el perfil `BlindnessDetection-EC2Role`, security group solo con el puerto de la API, alarma de distribución y dashboard ✅ (24 nov) |
 
-**Lo que falta del servicio (24 nov):**
+**Estado del servicio (24 nov):** terminado. Detalles en `docs/arquitectura.md` ("Despliegue en EC2"
+y "Monitoreo en CloudWatch") y pasos para rehacer la instancia en `deploy/README.md`.
 
-- **Despliegue en EC2:** script o instrucciones para instalar dependencias, poner las variables de
-  entorno (la API no lee `.env`, así que van en el servicio de systemd) y dejar corriendo
-  `uvicorn src.api.main:create_app --factory`. Security group solo con el puerto de la API.
-- **Permisos del rol de EC2:** confirmar que `BlindnessDetection-EC2Role` puede hacer
-  `cloudwatch:PutMetricData` en `BlindnessDetection`. Si no, la API no falla pero las métricas no
-  llegan y no se nota.
-- **CloudWatch:** alarma de distribución de clases, dashboard y agente de CloudWatch en la EC2 para
-  mandar los logs de la app a `/blindness-detection/api`.
-- **Prueba de punta a punta con el modelo real**, primero en Studio y luego en EC2.
-- **Mejoras sugeridas (no bloquean):** reducir el mapa de calor a ~512 px antes de codificarlo (hoy
-  va a la resolución de la foto recortada, que puede pesar varios MB en base64); correr la inferencia
-  fuera del event loop (`/predict` es `async` pero el modelo bloquea); en CI instalar torch desde el
-  índice de CPU para que tarde menos.
-- La EC2 cobra por hora: levantarla cerca de la entrega y apagarla al terminar.
+- ✅ EC2 `t3.small` (Amazon Linux 2023, `i-06931fdebdd2981cb`) con `BlindnessDetection-EC2Role`
+  (+ `AmazonSSMManagedInstanceCore`), security group `BlindnessDetection-EC2SG` solo con el puerto
+  8000 y acceso por Session Manager (sin SSH). Swap de 2 GB para que Grad-CAM no agote la memoria.
+- ✅ API como servicio systemd (`deploy/blindness-api.service`, variables de entorno ahí) y agente
+  de CloudWatch que manda `/var/log/blindness-api.log` a `/blindness-detection/api`.
+- ✅ Métricas llegando al namespace `BlindnessDetection` (el rol sí tiene `PutMetricData`), dashboard
+  `BlindnessDetection` y alarma `BlindnessDetection-ClassDistributionDrift` (> 70 % referibles en
+  una hora, aviso por SNS a `BlindnessDetection-Alerts`). El umbral no está calibrado: con pocas
+  fotos de prueba la alarma se dispara sola, y eso es lo esperado.
+- ✅ Prueba de punta a punta en EC2 con el modelo real (3 predicciones registradas en S3).
+- ✅ Mejoras: mapa de calor a 512 px, inferencia en threadpool, torch de CPU en CI y un candado
+  (`_MODEL_LOCK` en `src/api/main.py`) para que pase una foto a la vez por el modelo (Grad-CAM usa
+  hooks sobre una capa compartida y dos peticiones en paralelo se cruzarían los mapas de calor).
+- La EC2 cobra por hora mientras está encendida: **apagarla al terminar** (`aws ec2 stop-instances
+  --instance-ids i-06931fdebdd2981cb`); al prenderla cambia la IP pública.
 
 ### Juntos
 
@@ -403,7 +405,7 @@ de cada parte, las piezas que dependen mucho entre sí queden con la misma perso
 | Acordar los contratos | Sección 4, antes de empezar |
 | Entrenamientos | Corrida corta (`--subset 64 --epochs 1`), corrida completa, revisar métricas y umbrales, promover con `promote_model.py`. Kevin ajusta el modelo, Eduardo lanza y revisa en CloudWatch |
 | Modelo final | **Un solo entrenamiento, sin comparar modelos** (decidido el 22 de noviembre). EfficientNet-B3 con pesos Noisy Student (`tf_efficientnet_b3.ns_jft_in1k`) a 512 px, 20 épocas, batch 32, lr 3e-4, entropía cruzada con pesos por clase, en `ml.g5.xlarge` Spot (~25–35 min, menos de $0.30). **Por qué:** las mejores soluciones de APTOS 2019 usaron EfficientNet de B3 a B5 a 380–512 px; la B3 tiene más capacidad que la B0 para lesiones pequeñas (microaneurismas de la clase leve) sin sobreajustar tanto con ~2,400 fotos, y sigue respondiendo en menos de un segundo en la CPU de la EC2. Se queda la entropía cruzada porque la API necesita la probabilidad de cada grado (contrato 4.9). Se reporta en prueba, con el error por clase y por cámara (de `predictions.csv`). Si la B3 no cabe con batch 32, se baja a 16. **Primer entrenamiento (23 nov, `2026-11-23-effb3-162536`):** kappa 0.914 en prueba, accuracy 83.8 %, pero sensibilidad de referibles de solo 0.866 y sobreajuste (`train_loss` 0.02 contra `val_loss` 1.39). **Ajustes:** (1) el umbral de referible se escoge en validación con `min_sensitivity` 0.95 en lugar de 0.90 (`src/training/rethreshold.py` lo aplica a un modelo ya entrenado; en prueba sube la sensibilidad a 0.931 y la especificidad baja solo de 0.962 a 0.950); (2) `train.py --min-sensitivity` (0.95 por defecto); (3) se reentrenó con `--weight-decay 0.05` (antes 1e-4) y `--label-smoothing 0.1` (`2026-11-23-effb3-172449`): salió peor (kappa en validación 0.884 contra 0.893, especificidad en prueba 0.887 contra 0.950 y 40 % de casos a revisión humana contra 14 %). (4) el mismo modelo a 640 px (`2026-11-23-effb3-184323`, caché `640/`, batch 16): kappa en validación 0.904 y en prueba 0.915 (contra 0.914), pero con la meta 0.95 su sensibilidad en prueba fue 0.896; subirle la meta a 0.96 la iguala (0.931), aunque esa decisión se tomó después de ver la prueba, y además es ~1.6 veces más lento en la API. **Decisión final (23 nov): en producción `2026-11-23-effb3-162536`, B3 a 512 px con meta 0.95** — todo se decidió antes de ver la prueba. En prueba: kappa 0.914, accuracy 83.8 %, sensibilidad de referibles 0.931, especificidad 0.950, 14.4 % a revisión humana |
-| Prueba de punta a punta | Con el modelo real en `models/current/`, primero en Studio y luego en EC2 |
+| Prueba de punta a punta | Con el modelo real en `models/current/`, primero en Studio y luego en EC2 ✅ En EC2 (24 nov) |
 
 En Studio, la API se puede probar con `TestClient` (sin levantar servidor) o con `uvicorn` en
 el puerto 8000 y abrirla en `…/jupyterlab/default/proxy/8000/`.

@@ -12,6 +12,7 @@ clases, aunque a veces no coincida con el grupo del semáforo (ver docs/plan.md,
 from __future__ import annotations
 
 import base64
+import threading
 import time
 
 import cv2
@@ -36,6 +37,7 @@ RECOMMENDATION = {
 LOW_CONFIDENCE_RECOMMENDATION = "Revisión humana"
 REFERABLE_CLASS = 2
 HEATMAP_OUTPUT_SIZE = 512
+_MODEL_LOCK = threading.Lock()
 
 
 def _traffic_light(probs: np.ndarray, decision: dict) -> str:
@@ -90,11 +92,16 @@ def _analyze(bundle: ModelBundle, data: bytes) -> dict:
     cropped = crop_retina(img)
     tensor = to_tensor(cropped, bundle.metadata["image_size"])
 
-    with torch.no_grad():
-        logits = bundle.model(tensor.unsqueeze(0))
-        probs = torch.softmax(logits, dim=1)[0].numpy()
+    # Una foto a la vez por el modelo: Grad-CAM engancha hooks a una capa compartida y hace
+    # backward, así que dos peticiones en paralelo se cruzarían los mapas de calor; además, en la
+    # t3.small (2 GB) dos pasadas de la B3 a la vez pueden agotar la memoria.
+    with _MODEL_LOCK:
+        with torch.no_grad():
+            logits = bundle.model(tensor.unsqueeze(0))
+            probs = torch.softmax(logits, dim=1)[0].numpy()
+        predicted_class = int(probs.argmax())
+        heatmap = generate_heatmap(bundle.model, tensor, predicted_class, cropped)
 
-    predicted_class = int(probs.argmax())
     confidence = float(probs.max())
     decision = bundle.metadata["decision"]
     low_confidence = confidence < decision["confidence_threshold"]
@@ -106,7 +113,7 @@ def _analyze(bundle: ModelBundle, data: bytes) -> dict:
         traffic_light = _traffic_light(probs, decision)
         recommendation = RECOMMENDATION[traffic_light]
 
-    heatmap = _resize_for_output(generate_heatmap(bundle.model, tensor, predicted_class, cropped))
+    heatmap = _resize_for_output(heatmap)
 
     return {
         "quality_ok": True,
