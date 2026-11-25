@@ -1,4 +1,4 @@
-# Detección temprana de Retinopatía Diabética para evitar ceguera
+# Tamizaje de retinopatía diabética referible en fotografías de fondo de ojo mediante aprendizaje profundo
 
 Proyecto de la materia *Integración de Servicios de Aprendizaje Automático* (ITESO).
 Equipo: Kevin Ayala y Eduardo Navarro.
@@ -38,7 +38,7 @@ herramienta hace cuatro cosas:
 
 - **Semáforo con recomendación:** verde (sin retinopatía o leve, revisión anual), amarillo
   (moderada, referir a oftalmología) y rojo (severa o proliferativa, referir pronto). Esta regla
-  la vamos a revisar con un médico.
+  todavía no la revisa un médico; es lo primero que habría que hacer antes de usarla con pacientes.
 - **Filtro de calidad:** si la foto está borrosa u oscura, pide repetir la toma en lugar de dar un
   resultado poco confiable.
 - **Aviso de baja confianza:** cuando el modelo no está seguro, no asigna color y manda el caso a
@@ -66,15 +66,17 @@ Tiene 3,662 imágenes etiquetadas por médicos en 5 niveles:
 | 3 | Severa | 193 |
 | 4 | Proliferativa | 295 |
 
-Las dividiremos en entrenamiento, validación y prueba de forma estratificada, para que cada parte
-conserve la proporción de clases, y antes revisaremos que no haya imágenes duplicadas.
+Encontramos 145 grupos de fotos duplicadas (39 con etiquetas distintas) y quitamos 196 fotos. Las
+3,466 que quedan se dividen de forma estratificada en entrenamiento (2,426), validación (520) y
+prueba (520), con semilla fija, en `data/splits.csv`.
 
 El dataset está desbalanceado, porque casi la mitad son ojos sanos, y las fotos vienen de distintas
-cámaras y calidades. Por eso habrá que preprocesarlas y usar métricas más allá de accuracy.
+cámaras y calidades. Por eso cada foto se recorta al círculo de la retina, se usan pesos por clase
+al entrenar y se miden métricas más allá de accuracy.
 
 ## 3. Métricas
 
-Como es una herramienta de tamizaje, lo que más importa es no dejar pasar casos. Vamos a medir:
+Como es una herramienta de tamizaje, lo que más importa es no dejar pasar casos. Medimos:
 
 - **Sensibilidad y especificidad** para los casos referibles (moderada o más).
 - **Kappa cuadrático ponderado**, que es la métrica oficial de la competencia APTOS.
@@ -83,7 +85,24 @@ Como es una herramienta de tamizaje, lo que más importa es no dejar pasar casos
 El umbral de decisión se elige dando prioridad a la sensibilidad, porque un falso negativo cuesta
 más que un falso positivo.
 
-## 4. Servicios de AWS
+## 4. Modelo y resultados
+
+EfficientNet-B3 (`tf_efficientnet_b3.ns_jft_in1k` de `timm`) a 512 × 512 px, ajustada 20 épocas con
+entropía cruzada con pesos por clase en un trabajo de SageMaker con GPU (`ml.g5.xlarge`). Probamos
+tres configuraciones con la misma división y escogimos con el kappa de validación:
+
+| Entrenamiento | Kappa val. | Kappa prueba | Accuracy | Sensib. referibles | Especif. referibles |
+|---|---|---|---|---|---|
+| **B3 a 512 px (en producción)** | 0.893 | **0.914** | **83.8%** | **0.931** | **0.950** |
+| Regularizado (weight decay 0.05 + label smoothing 0.1) | 0.884 | 0.905 | 81.9% | 0.926 | 0.887 |
+| B3 a 640 px | 0.904 | 0.915 | 84.4% | 0.896 | 0.953 |
+
+El modelo en producción es `2026-11-23-effb3-162536`. El umbral de referible (0.10) se escogió en
+validación pidiendo sensibilidad de al menos 0.95, y el de confianza (0.87) manda a revisión humana
+el 14% de las fotos de prueba. El análisis completo (curvas, matriz de confusión, umbrales y error
+por cámara) está en `notebooks/training.ipynb`.
+
+## 5. Servicios de AWS
 
 - **Amazon S3:** almacenamiento del proyecto, en dos buckets. Uno de modelos: guarda cada
   entrenamiento en `models/<run_id>/` y el modelo que está en producción en `models/current/`
@@ -95,7 +114,7 @@ más que un falso positivo.
   en instancias con GPU que leen las fotos preparadas de S3 y, al terminar, guardan el modelo
   entrenado en S3. La instancia se apaga sola al finalizar, así que solo se paga el tiempo
   de entrenamiento.
-- **Amazon EC2:** es el servidor donde corren la página web y nuestra API con FastAPI. Descarga el
+- **Amazon EC2:** una `t3.small` es el servidor donde corren la página web y nuestra API con FastAPI. Descarga el
   modelo desde S3, recibe una foto de fondo de ojo, revisa su calidad y regresa el semáforo, el
   nivel de severidad estimado (0 a 4) con su probabilidad y el mapa de calor.
 - **Amazon CloudWatch:** recibe los logs y métricas del entrenamiento en SageMaker y monitorea la
@@ -103,7 +122,7 @@ más que un falso positivo.
   distribución de predicciones por clase. Una alarma avisa si esa distribución cambia de forma
   brusca, señal de que las fotos que llegan ya no se parecen a las del entrenamiento.
 
-## 5. Arquitectura
+## 6. Arquitectura
 
 ![Diagrama de arquitectura](docs/arquitectura.png)
 
@@ -127,23 +146,47 @@ y escribe modelos) y
 `BlindnessDetection-EC2Role` (lee modelos y escribe predicciones). Más detalle de buckets, roles y
 convenciones en [docs/arquitectura.md](docs/arquitectura.md).
 
-## 6. Estructura del repositorio
+## 7. Estructura del repositorio
 
 ```
 ├── README.md
-├── requirements.txt
-├── .gitignore
+├── requirements.txt      # versiones fijas (Python 3.9 en EC2 y 3.11 en Studio y CI)
+├── ruff.toml             # reglas del análisis de código
+├── pytest.ini
+├── .env.example          # variables de entorno (buckets, región, rol de SageMaker, token de Kaggle)
 ├── data/                 # splits.csv (división train/val/test) y duplicates.csv; las fotos no van en git
-├── notebooks/            # EDA, división del dataset y calibración del filtro de calidad
+├── notebooks/            # EDA, división del dataset, filtro de calidad y resultados del entrenamiento
 ├── docs/                 # arquitectura y plan de trabajo (plan.md)
+├── deploy/               # servicio de systemd, agente de CloudWatch y pasos para montar la EC2
 ├── src/
-│   ├── data/             # scripts para descargar y preparar el dataset
-│   ├── common/           # preprocesamiento y filtro de calidad (los usan entrenamiento y API)
-│   ├── training/         # train.py (SageMaker AI) y promote_model.py (publica a producción)
-│   └── api/              # página web y API con FastAPI (corre en EC2)
-├── tests/                # pruebas con pytest
-└── .github/workflows/    # CI con GitHub Actions
+│   ├── data/             # descarga del dataset, división y métricas
+│   ├── common/           # preprocesamiento, filtro de calidad y Grad-CAM (los usan entrenamiento y API)
+│   ├── training/         # train.py, launch_sagemaker.py, rethreshold.py y promote_model.py
+│   └── api/              # API con FastAPI, monitoreo y página web (static/)
+├── tests/                # 69 pruebas con pytest
+└── .github/workflows/    # CI: ruff y pytest en cada push
 ```
+
+## 8. Cómo correrlo
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env          # y llenar el número de cuenta
+
+ruff check .                  # análisis de código
+pytest                        # 69 pruebas, sin internet ni AWS
+
+# API y página en local (necesita credenciales de AWS para bajar models/current/ de S3)
+uvicorn src.api.main:create_app --factory --port 8000    # abrir http://localhost:8000
+
+# Entrenar en SageMaker y publicar el modelo
+python src/training/launch_sagemaker.py --help
+python src/training/promote_model.py --help
+```
+
+La página también se puede ver sin API: abrir `src/api/static/index.html` en el navegador entra en
+modo demostración (`?demo=rojo&sample=1`). El despliegue en EC2 está en
+[deploy/README.md](deploy/README.md).
 
 ## Referencias
 

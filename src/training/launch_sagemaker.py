@@ -95,7 +95,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     a.add_argument("--region", default=os.environ.get("AWS_REGION", "us-east-1"))
     a.add_argument("--role-arn", default=os.environ.get("SAGEMAKER_ROLE_ARN"))
     a.add_argument("--bucket", default=os.environ.get("S3_BUCKET_MODELS"), help="Bucket de modelos")
-    a.add_argument("--kaggle-token-param", default=os.environ.get("KAGGLE_TOKEN_PARAM", "/blindness-detection/kaggle-token"))
+    a.add_argument("--kaggle-token-param",
+                   default=os.environ.get("KAGGLE_TOKEN_PARAM", "/blindness-detection/kaggle-token"))
 
     p.add_argument("--dry-run", action="store_true", help="Armar el paquete y mostrar la petición sin lanzar nada")
     p.add_argument("--no-wait", action="store_true", help="Lanzar y salir sin esperar a que termine")
@@ -237,7 +238,8 @@ def build_request(args: argparse.Namespace, *, job_name: str, default_bucket: st
         request["StoppingCondition"]["MaxWaitTimeInSeconds"] = args.max_wait
         # train.py guarda last.pth y best.pth en /opt/ml/checkpoints; SageMaker los copia aquí y los
         # restaura si AWS interrumpe la instancia Spot
-        request["CheckpointConfig"] = {"S3Uri": f"{base}/checkpoints/{args.run_id}/", "LocalPath": "/opt/ml/checkpoints"}
+        request["CheckpointConfig"] = {"S3Uri": f"{base}/checkpoints/{args.run_id}/",
+                                       "LocalPath": "/opt/ml/checkpoints"}
     return request
 
 
@@ -268,7 +270,8 @@ def summary(job: dict, bucket: str, run_id: str) -> str:
         lines.append("Métricas: " + ", ".join(f"{k}={v:.4f}" for k, v in sorted(metrics.items())))
     if job.get("TrainingTimeInSeconds"):
         billable = job.get("BillableTimeInSeconds", job["TrainingTimeInSeconds"])
-        lines.append(f"Tiempo entrenando: {job['TrainingTimeInSeconds'] / 60:.1f} min · cobrado: {billable / 60:.1f} min")
+        lines.append(f"Tiempo entrenando: {job['TrainingTimeInSeconds'] / 60:.1f} min"
+                     f" · cobrado: {billable / 60:.1f} min")
     if job["TrainingJobStatus"] == "Completed":
         lines.append(f"Modelo: s3://{bucket}/models/{run_id}/")
         lines.append(f"Para ponerlo en producción: python -m src.training.promote_model --run-id {run_id}")

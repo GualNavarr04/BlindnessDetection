@@ -92,7 +92,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--cache-only", type=int, default=0, help="1 = solo preparar el caché de --image-size y salir")
     p.add_argument("--bucket", default=os.environ.get("S3_BUCKET_MODELS"))
     p.add_argument("--splits", default=str(ROOT / "data" / "splits.csv"))
-    p.add_argument("--data-dir", default=None, help="Carpeta con train_images/ (por defecto: canal de SageMaker o DATA_DIR)")
+    p.add_argument("--data-dir", default=None,
+                   help="Carpeta con train_images/ (por defecto: canal de SageMaker o DATA_DIR)")
     p.add_argument("--cache-dir", default=None)
     p.add_argument("--output-dir", default=None)
     p.add_argument("--checkpoint-dir", default=None)
@@ -107,7 +108,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.cache_dir is None:
         # En SageMaker: el canal "cache" (fotos ya recortadas, subidas a S3) si se pasó; si no, se arma en /tmp.
         # En Studio el caché queda junto al dataset y se reutiliza entre corridas.
-        args.cache_dir = os.environ.get("SM_CHANNEL_CACHE") or ("/tmp/aptos-cache" if ON_SAGEMAKER else str(data_dir / "cache"))
+        args.cache_dir = os.environ.get("SM_CHANNEL_CACHE") or (
+            "/tmp/aptos-cache" if ON_SAGEMAKER else str(data_dir / "cache"))
     if args.output_dir is None:
         args.output_dir = os.environ.get("SM_MODEL_DIR") or str(ROOT / "outputs" / args.run_id)
     if args.checkpoint_dir is None:
@@ -305,7 +307,8 @@ def main(argv: list[str] | None = None) -> dict:
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, pct_start=0.1,
                                                     total_steps=max(1, args.epochs * len(train_loader)))
     scaler = torch.amp.GradScaler(device.type, enabled=device.type == "cuda")
-    print(f"[modelo] {args.architecture} en {device} · pesos por clase {[round(float(w), 2) for w in weights]}", flush=True)
+    print(f"[modelo] {args.architecture} en {device} · "
+          f"pesos por clase {[round(float(w), 2) for w in weights]}", flush=True)
 
     # --- reanudar si hay checkpoint de esta misma corrida (interrupción Spot)
     last_ckpt, best_ckpt = checkpoint_dir / "last.pth", checkpoint_dir / "best.pth"

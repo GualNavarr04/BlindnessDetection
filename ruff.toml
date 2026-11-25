@@ -1,0 +1,16 @@
+# Análisis de código (lo corre GitHub Actions antes de pytest).
+# py39: la EC2 usa el Python 3.9 de Amazon Linux 2023, así que no se sugieren cosas de 3.10+.
+target-version = "py39"
+line-length = 120
+extend-exclude = ["notebooks"]
+
+[lint]
+# E/W: estilo (pycodestyle), F: errores (pyflakes), I: orden de imports, B: errores comunes (bugbear)
+select = ["E", "F", "W", "I", "B"]
+
+[lint.flake8-bugbear]
+# File(...) como valor por defecto es la forma normal de declarar un archivo en FastAPI
+extend-immutable-calls = ["fastapi.File"]
+
+[lint.isort]
+known-first-party = ["src"]

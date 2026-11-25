@@ -86,7 +86,8 @@ def describe(old: dict, new: dict) -> str:
         return f"  {name:<30} {a:>8} -> {b:<8}"
 
     lines = [row("umbral de referible", old["decision"]["referable_threshold"], new["decision"]["referable_threshold"]),
-             row("umbral de confianza", old["decision"]["confidence_threshold"], new["decision"]["confidence_threshold"])]
+             row("umbral de confianza", old["decision"]["confidence_threshold"],
+                 new["decision"]["confidence_threshold"])]
     for key in METRIC_KEYS:
         lines.append(row(f"prueba {key}", f"{old['metrics'][key]:.3f}", f"{new['metrics'][key]:.3f}"))
         lines.append(row(f"validación {key}", f"{old['validation_metrics'][key]:.3f}",

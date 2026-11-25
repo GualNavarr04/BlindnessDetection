@@ -78,7 +78,7 @@ def test_select_rows_subset():
 
 def test_cache_matches_api_preprocessing(dataset):
     # El caché debe dar el mismo tensor que preprocess() de la API
-    from src.common.preprocess import preprocess, to_tensor, load_image
+    from src.common.preprocess import load_image, preprocess, to_tensor
 
     tmp_path, splits = dataset
     path = tmp_path / "data" / "train_images" / "val00.png"
